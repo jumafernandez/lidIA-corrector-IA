@@ -14,11 +14,11 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from . import auth
-from .db import (assignment_cfg, assignment_items, can_access_course, course_assignments,
-                 course_teachers, enroll, final_activa, get_assignment, get_config, get_course,
-                 get_db, init_db, is_enrolled, items_puntaje_total, practicas_usadas,
-                 preguntas_usadas, set_config, staff_courses, student_courses,
-                 teacher_course_ids, utcnow)
+from .db import (all_courses, assignment_cfg, assignment_items, can_access_edition,
+                 course_editions, edition_assignments, edition_teachers, enroll, final_activa,
+                 get_assignment, get_config, get_course, get_db, get_edition, init_db,
+                 is_enrolled, items_puntaje_total, practicas_usadas, preguntas_usadas,
+                 set_config, staff_editions, student_editions, teacher_edition_ids, utcnow)
 from .emailer import send_feedback_email, smtp_configured
 from .extract import ExtractionError, extract_text
 from .llm import (LLMError, answer_question, generate_feedback, model_info, split_items,
@@ -94,7 +94,7 @@ def _require(request: Request, *roles: str):
 
 def _scope_ids(db, user):
     """Cursos administrables: None = todos (admin), lista (posiblemente vacía) para docentes."""
-    return teacher_course_ids(db, user)
+    return teacher_edition_ids(db, user)
 
 
 def _course_cond(col: str, ids: list) -> tuple[str, list]:
@@ -120,7 +120,7 @@ def _student_in_scope(db, user, student_id: int) -> bool:
         return False
     marks = ",".join("?" * len(ids))
     return bool(db.execute(
-        f"SELECT 1 FROM enrollments WHERE user_id = ? AND course_id IN ({marks})",
+        f"SELECT 1 FROM enrollments WHERE user_id = ? AND edition_id IN ({marks})",
         [student_id, *ids],
     ).fetchone())
 
@@ -131,7 +131,7 @@ def _load_submission(db, sid: int):
     if not sub:
         return None, None, None
     assignment = get_assignment(db, sub["assignment_id"])
-    course = get_course(db, assignment["course_id"])
+    course = get_edition(db, assignment["edition_id"])
     return sub, assignment, course
 
 
@@ -278,13 +278,13 @@ def panel_root(request: Request):
     if resp:
         return resp
     with get_db() as db:
-        cursos = student_courses(db, user["id"])
+        cursos = student_editions(db, user["id"])
         if len(cursos) == 1:
             return redirect(f"/panel/{cursos[0]['id']}")
         cfg = get_config(db)
         items = [{
             "c": c,
-            "n_instancias": len(course_assignments(db, c["id"], only_active=True)),
+            "n_instancias": len(edition_assignments(db, c["id"], only_active=True)),
         } for c in cursos]
     return render(request, "panel_cursos.html", items=items, cfg=cfg)
 
@@ -295,19 +295,19 @@ def panel_curso(request: Request, cid: int):
     if resp:
         return resp
     with get_db() as db:
-        course = get_course(db, cid)
+        course = get_edition(db, cid)
         if not course or not course["active"] or not is_enrolled(db, user["id"], cid):
             return redirect("/panel")
         cfg = get_config(db)
         items = []
-        for a in course_assignments(db, cid, only_active=True):
+        for a in edition_assignments(db, cid, only_active=True):
             usadas = practicas_usadas(db, user["id"], a["id"])
             items.append({
                 "a": a,
                 "restantes": max(0, a["max_practicas"] - usadas),
                 "final": final_activa(db, user["id"], a["id"]),
             })
-        multi = len(student_courses(db, user["id"])) > 1
+        multi = len(student_editions(db, user["id"])) > 1
     return render(request, "panel_curso.html", course=course, items=items, cfg=cfg, multi=multi)
 
 
@@ -320,7 +320,7 @@ def panel_instancia(request: Request, aid: int):
         assignment = get_assignment(db, aid)
         if not assignment or not assignment["active"]:
             return redirect("/panel")
-        course = get_course(db, assignment["course_id"])
+        course = get_edition(db, assignment["edition_id"])
         if not course["active"] or not is_enrolled(db, user["id"], course["id"]):
             return redirect("/panel")
         cfg = get_config(db)
@@ -360,7 +360,7 @@ async def entregar(
 
     with get_db() as db:
         assignment = get_assignment(db, assignment_id)
-        course = get_course(db, assignment["course_id"]) if assignment else None
+        course = get_edition(db, assignment["edition_id"]) if assignment else None
         if (not assignment or not assignment["active"] or not course["active"]
                 or not is_enrolled(db, user["id"], course["id"])):
             return redirect("/panel", err="Esa instancia de evaluación no está disponible.")
@@ -447,7 +447,7 @@ async def entregar_fotos(
 
     with get_db() as db:
         assignment = get_assignment(db, assignment_id)
-        course = get_course(db, assignment["course_id"]) if assignment else None
+        course = get_edition(db, assignment["edition_id"]) if assignment else None
         if (not assignment or not assignment["active"] or not course["active"]
                 or not is_enrolled(db, user["id"], course["id"])):
             return redirect("/panel", err="Esa instancia de evaluación no está disponible.")
@@ -507,7 +507,7 @@ def entrega(request: Request, sid: int):
         if user["role"] == "student":
             if sub["user_id"] != user["id"]:
                 return redirect("/")
-        elif not can_access_course(db, user, course["id"]):
+        elif not can_access_edition(db, user, course["id"]):
             return redirect("/")
         qs = db.execute(
             "SELECT * FROM questions WHERE submission_id = ? ORDER BY id", (sid,)
@@ -569,23 +569,24 @@ def admin_entregas(request: Request, curso: str | None = None):
         return resp
     curso = _curso_param(curso)
     with get_db() as db:
-        cursos = staff_courses(db, user)
+        cursos = staff_editions(db, user)
         ids = _scope_ids(db, user)
-        if curso is not None and not can_access_course(db, user, curso):
+        if curso is not None and not can_access_edition(db, user, curso):
             return redirect("/admin/entregas")
         where, params = [], []
         if ids is not None:
-            cond, p = _course_cond("a.course_id", ids)
+            cond, p = _course_cond("a.edition_id", ids)
             where.append(cond)
             params += p
         if curso is not None:
-            where.append("a.course_id = ?")
+            where.append("a.edition_id = ?")
             params.append(curso)
         where_sql = (" WHERE " + " AND ".join(where)) if where else ""
         rows = db.execute(
-            "SELECT s.*, u.full_name, u.login, a.name AS instancia, c.name AS course_name "
+            "SELECT s.*, u.full_name, u.login, a.name AS instancia, c.name || ' ' || ce.etiqueta AS course_name "
             "FROM submissions s JOIN users u ON u.id = s.user_id "
-            "JOIN assignments a ON a.id = s.assignment_id JOIN courses c ON c.id = a.course_id"
+            "JOIN assignments a ON a.id = s.assignment_id JOIN course_editions ce ON ce.id = a.edition_id "
+            "JOIN courses c ON c.id = ce.course_id"
             + where_sql +
             " ORDER BY (s.kind = 'final' AND s.status = 'pendiente') DESC, s.id DESC",
             params,
@@ -593,11 +594,11 @@ def admin_entregas(request: Request, curso: str | None = None):
 
         e_where, e_params = [], []
         if ids is not None:
-            cond, p = _course_cond("e.course_id", ids)
+            cond, p = _course_cond("e.edition_id", ids)
             e_where.append(cond)
             e_params += p
         if curso is not None:
-            e_where.append("e.course_id = ?")
+            e_where.append("e.edition_id = ?")
             e_params.append(curso)
         e_sql = (" AND " + " AND ".join(e_where)) if e_where else ""
         stats = {
@@ -621,7 +622,7 @@ def admin_final(request: Request, sid: int):
         return resp
     with get_db() as db:
         sub, assignment, course = _load_submission(db, sid)
-        if not sub or sub["kind"] != "final" or not can_access_course(db, user, course["id"]):
+        if not sub or sub["kind"] != "final" or not can_access_edition(db, user, course["id"]):
             return redirect("/admin/entregas")
         owner = db.execute("SELECT * FROM users WHERE id = ?", (sub["user_id"],)).fetchone()
     return render(
@@ -637,7 +638,7 @@ def admin_final_post(request: Request, sid: int, action: str = Form(...), feedba
         return resp
     with get_db() as db:
         sub, assignment, course = _load_submission(db, sid)
-        if not sub or sub["kind"] != "final" or not can_access_course(db, user, course["id"]):
+        if not sub or sub["kind"] != "final" or not can_access_edition(db, user, course["id"]):
             return redirect("/admin/entregas")
         owner = db.execute("SELECT * FROM users WHERE id = ?", (sub["user_id"],)).fetchone()
         if action == "reabrir":
@@ -669,27 +670,85 @@ def admin_cursos(request: Request):
     if resp:
         return resp
     with get_db() as db:
-        cursos = staff_courses(db, user)
+        cursos = staff_editions(db, user)
         rows = []
         for c in cursos:
-            docentes = course_teachers(db, c["id"])
+            docentes = edition_teachers(db, c["id"])
             n_est = db.execute(
-                "SELECT COUNT(*) n FROM enrollments WHERE course_id = ?", (c["id"],)
+                "SELECT COUNT(*) n FROM enrollments WHERE edition_id = ?", (c["id"],)
             ).fetchone()["n"]
             n_inst = db.execute(
-                "SELECT COUNT(*) n FROM assignments WHERE course_id = ?", (c["id"],)
+                "SELECT COUNT(*) n FROM assignments WHERE edition_id = ?", (c["id"],)
             ).fetchone()["n"]
             pendientes = db.execute(
                 "SELECT COUNT(*) n FROM submissions s JOIN assignments a ON a.id = s.assignment_id "
-                "WHERE a.course_id = ? AND s.kind = 'final' AND s.status = 'pendiente'",
+                "WHERE a.edition_id = ? AND s.kind = 'final' AND s.status = 'pendiente'",
                 (c["id"],),
             ).fetchone()["n"]
             rows.append({"c": c, "docentes": docentes, "n_est": n_est, "n_inst": n_inst, "pendientes": pendientes})
-    return render(request, "admin_cursos.html", rows=rows)
+    # agrupadas por materia, conservando el orden de staff_editions
+    grupos = []
+    for r in rows:
+        if not grupos or grupos[-1]["materia"] != r["c"]["materia"]:
+            grupos.append({"materia": r["c"]["materia"], "materia_id": r["c"]["course_id"], "ediciones": []})
+        grupos[-1]["ediciones"].append(r)
+    return render(request, "admin_cursos.html", grupos=grupos, rows=rows)
+
+
+@app.get("/admin/materias", response_class=HTMLResponse)
+def admin_materias(request: Request):
+    user, resp = _require(request, "admin")
+    if resp:
+        return resp
+    with get_db() as db:
+        materias = []
+        for m in all_courses(db):
+            eds = course_editions(db, m["id"])
+            n_est = db.execute(
+                "SELECT COUNT(DISTINCT e.user_id) n FROM enrollments e "
+                "JOIN course_editions ed ON ed.id = e.edition_id WHERE ed.course_id = ?",
+                (m["id"],),
+            ).fetchone()["n"]
+            materias.append({"m": m, "ediciones": eds, "n_est": n_est})
+    return render(request, "admin_materias.html", materias=materias)
+
+
+@app.post("/admin/materias/{mid}")
+async def admin_materia_post(request: Request, mid: int):
+    user, resp = _require(request, "admin")
+    if resp:
+        return resp
+    form = await request.form()
+    with get_db() as db:
+        materia = get_course(db, mid)
+        if not materia:
+            return redirect("/admin/materias")
+        if form.get("action") == "eliminar":
+            n = db.execute("SELECT COUNT(*) n FROM course_editions WHERE course_id = ?", (mid,)).fetchone()["n"]
+            if n:
+                return redirect(
+                    "/admin/materias",
+                    err=f"«{materia['name']}» tiene {n} edición{'es' if n != 1 else ''}: "
+                        "no se puede eliminar. Desactivala si ya no se dicta.",
+                )
+            db.execute("DELETE FROM courses WHERE id = ?", (mid,))
+            return redirect("/admin/materias", msg=f"Materia «{materia['name']}» eliminada.")
+        name = (form.get("name") or "").strip()
+        if not name:
+            return redirect("/admin/materias", err="La materia necesita un nombre.")
+        if name != materia["name"] and db.execute(
+            "SELECT 1 FROM courses WHERE name = ? AND id != ?", (name, mid)
+        ).fetchone():
+            return redirect("/admin/materias", err=f"Ya existe una materia «{name}».")
+        db.execute(
+            "UPDATE courses SET name = ?, active = ? WHERE id = ?",
+            (name, 1 if form.get("active") == "1" else 0, mid),
+        )
+    return redirect("/admin/materias", msg="Materia actualizada.")
 
 
 @app.get("/admin/cursos/nuevo", response_class=HTMLResponse)
-def admin_curso_nuevo(request: Request):
+def admin_curso_nuevo(request: Request, materia: str | None = None):
     user, resp = _require(request, "admin")
     if resp:
         return resp
@@ -697,29 +756,59 @@ def admin_curso_nuevo(request: Request):
         docentes = db.execute(
             "SELECT * FROM users WHERE role IN ('docente', 'admin') ORDER BY role = 'admin' DESC, full_name"
         ).fetchall()
-    return render(request, "admin_curso_nuevo.html", docentes=docentes)
+        materias = all_courses(db, only_active=True)
+        duplicables = staff_editions(db, user)
+    return render(
+        request, "admin_curso_nuevo.html", docentes=docentes, materias=materias,
+        materia_f=_curso_param(materia), duplicables=duplicables, anio=str(datetime.now(AR_TZ).year),
+    )
 
 
 @app.post("/admin/cursos/crear")
 async def admin_cursos_crear(request: Request):
+    """Crea una EDICIÓN, sobre una materia existente o sobre una nueva."""
     user, resp = _require(request, "admin")
     if resp:
         return resp
     form = await request.form()
-    name = (form.get("name") or "").strip()
-    if not name:
-        return redirect("/admin/cursos/nuevo", err="El curso necesita un nombre.")
+    etiqueta = (form.get("etiqueta") or "").strip()
+    materia_id = form.get("materia_id") or ""
+    materia_nueva = (form.get("materia_nueva") or "").strip()
+    volver = "/admin/cursos/nuevo"
+    if not etiqueta:
+        return redirect(volver, err="La edición necesita una etiqueta (ej.: «2026» o «2026 2C»).")
+
     with get_db() as db:
-        if db.execute("SELECT 1 FROM courses WHERE name = ?", (name,)).fetchone():
-            return redirect("/admin/cursos/nuevo", err=f"Ya existe un curso llamado «{name}».")
-        cur = db.execute(
-            "INSERT INTO courses (name, active, created_at) VALUES (?, 1, ?)", (name, utcnow())
-        )
-        cid = cur.lastrowid
+        if materia_id == "nueva" or not materia_id:
+            if not materia_nueva:
+                return redirect(volver, err="Elegí una materia o escribí el nombre de una nueva.")
+            fila = db.execute("SELECT * FROM courses WHERE name = ?", (materia_nueva,)).fetchone()
+            if fila:
+                cid_materia = fila["id"]
+            else:
+                cid_materia = db.execute(
+                    "INSERT INTO courses (name, active, created_at) VALUES (?, 1, ?)",
+                    (materia_nueva, utcnow()),
+                ).lastrowid
+        else:
+            cid_materia = int(materia_id)
+            if not get_course(db, cid_materia):
+                return redirect(volver, err="Esa materia no existe.")
+
+        if db.execute(
+            "SELECT 1 FROM course_editions WHERE course_id = ? AND etiqueta = ?", (cid_materia, etiqueta)
+        ).fetchone():
+            materia = get_course(db, cid_materia)
+            return redirect(volver, err=f"«{materia['name']}» ya tiene una edición «{etiqueta}».")
+
+        eid = db.execute(
+            "INSERT INTO course_editions (course_id, etiqueta, active, created_at) VALUES (?, ?, 1, ?)",
+            (cid_materia, etiqueta, utcnow()),
+        ).lastrowid
         for uid in form.getlist("docentes"):
             if db.execute("SELECT 1 FROM users WHERE id = ? AND role IN ('docente', 'admin')", (int(uid),)).fetchone():
-                db.execute("INSERT INTO course_teachers (course_id, user_id) VALUES (?, ?)", (cid, int(uid)))
-    return redirect(f"/admin/cursos/{cid}", msg="Curso creado — creá sus instancias de evaluación.")
+                db.execute("INSERT INTO course_teachers (edition_id, user_id) VALUES (?, ?)", (eid, int(uid)))
+    return redirect(f"/admin/cursos/{eid}", msg="Edición creada — creá sus instancias de evaluación.")
 
 
 @app.get("/admin/cursos/{cid}", response_class=HTMLResponse)
@@ -728,10 +817,10 @@ def admin_curso(request: Request, cid: int):
     if resp:
         return resp
     with get_db() as db:
-        course = get_course(db, cid)
-        if not course or not can_access_course(db, user, cid):
+        course = get_edition(db, cid)
+        if not course or not can_access_edition(db, user, cid):
             return redirect("/admin/cursos")
-        asignados = course_teachers(db, cid)
+        asignados = edition_teachers(db, cid)
         # la coordinación también puede figurar como docente de un curso
         docentes = db.execute(
             "SELECT * FROM users WHERE role IN ('docente', 'admin') ORDER BY role = 'admin' DESC, full_name"
@@ -741,15 +830,15 @@ def admin_curso(request: Request, cid: int):
             " (SELECT COUNT(*) FROM submissions s WHERE s.assignment_id = a.id) AS n_entregas,"
             " (SELECT COUNT(*) FROM submissions s WHERE s.assignment_id = a.id"
             "  AND s.kind = 'final' AND s.status = 'pendiente') AS pendientes"
-            " FROM assignments a WHERE a.course_id = ? ORDER BY a.id",
+            " FROM assignments a WHERE a.edition_id = ? ORDER BY a.id",
             (cid,),
         ).fetchall()
         inscriptos = db.execute(
             "SELECT u.*,"
             " (SELECT COUNT(*) FROM submissions s JOIN assignments a ON a.id = s.assignment_id"
-            "  WHERE s.user_id = u.id AND a.course_id = ?) AS n_entregas"
+            "  WHERE s.user_id = u.id AND a.edition_id = ?) AS n_entregas"
             " FROM users u JOIN enrollments e ON e.user_id = u.id"
-            " WHERE e.course_id = ? ORDER BY u.full_name",
+            " WHERE e.edition_id = ? ORDER BY u.full_name",
             (cid, cid),
         ).fetchall()
     asignados_ids = {d["id"] for d in asignados}
@@ -766,38 +855,47 @@ async def admin_curso_post(request: Request, cid: int):
         return resp
     form = await request.form()
     with get_db() as db:
-        course = get_course(db, cid)
-        if not course or not can_access_course(db, user, cid):
+        course = get_edition(db, cid)
+        if not course or not can_access_edition(db, user, cid):
             return redirect("/admin/cursos")
         if form.get("action") == "eliminar":
             if user["role"] != "admin":
                 return redirect(f"/admin/cursos/{cid}")
             n = db.execute(
                 "SELECT COUNT(*) n FROM submissions s JOIN assignments a ON a.id = s.assignment_id "
-                "WHERE a.course_id = ?", (cid,)
+                "WHERE a.edition_id = ?", (cid,)
             ).fetchone()["n"]
             if n:
                 return redirect(
                     f"/admin/cursos/{cid}",
-                    err=f"El curso tiene {n} entrega{'s' if n != 1 else ''}: eliminarlo borraría ese historial. "
-                        "Desactivalo en su lugar.",
+                    err=f"La edición tiene {n} entrega{'s' if n != 1 else ''}: eliminarla borraría ese historial. "
+                        "Cerrala en su lugar (destildá «Cursada abierta»).",
                 )
-            db.execute("DELETE FROM courses WHERE id = ?", (cid,))
-            return redirect("/admin/cursos", msg=f"Curso «{course['name']}» eliminado.")
+            db.execute("DELETE FROM course_editions WHERE id = ?", (cid,))
+            return redirect("/admin/cursos", msg=f"Edición «{course['nombre']}» eliminada.")
         if user["role"] == "admin":
-            name = (form.get("name") or "").strip()
-            if name and name != course["name"]:
-                if db.execute("SELECT 1 FROM courses WHERE name = ? AND id != ?", (name, cid)).fetchone():
-                    return redirect(f"/admin/cursos/{cid}", err=f"Ya existe un curso llamado «{name}».")
-                db.execute("UPDATE courses SET name = ? WHERE id = ?", (name, cid))
-            db.execute("UPDATE courses SET active = ? WHERE id = ?", (1 if form.get("active") == "1" else 0, cid))
+            etiqueta = (form.get("etiqueta") or "").strip()
+            if etiqueta and etiqueta != course["etiqueta"]:
+                if db.execute(
+                    "SELECT 1 FROM course_editions WHERE course_id = ? AND etiqueta = ? AND id != ?",
+                    (course["course_id"], etiqueta, cid),
+                ).fetchone():
+                    return redirect(
+                        f"/admin/cursos/{cid}",
+                        err=f"«{course['materia']}» ya tiene una edición «{etiqueta}».",
+                    )
+                db.execute("UPDATE course_editions SET etiqueta = ? WHERE id = ?", (etiqueta, cid))
+            db.execute(
+                "UPDATE course_editions SET active = ? WHERE id = ?",
+                (1 if form.get("active") == "1" else 0, cid),
+            )
             elegidos = {int(x) for x in form.getlist("docentes")}
-            db.execute("DELETE FROM course_teachers WHERE course_id = ?", (cid,))
+            db.execute("DELETE FROM course_teachers WHERE edition_id = ?", (cid,))
             for uid in elegidos:
                 if db.execute(
                     "SELECT 1 FROM users WHERE id = ? AND role IN ('docente', 'admin')", (uid,)
                 ).fetchone():
-                    db.execute("INSERT INTO course_teachers (course_id, user_id) VALUES (?, ?)", (cid, uid))
+                    db.execute("INSERT INTO course_teachers (edition_id, user_id) VALUES (?, ?)", (cid, uid))
     return redirect(f"/admin/cursos/{cid}", msg="Curso guardado.")
 
 
@@ -807,8 +905,8 @@ def admin_instancia_nueva(request: Request, cid: int):
     if resp:
         return resp
     with get_db() as db:
-        course = get_course(db, cid)
-        if not course or not can_access_course(db, user, cid):
+        course = get_edition(db, cid)
+        if not course or not can_access_edition(db, user, cid):
             return redirect("/admin/cursos")
     return render(request, "admin_instancia_identidad.html", course=course, assignment=None)
 
@@ -824,8 +922,8 @@ async def admin_instancia_importar(request: Request, aid: int, archivo: UploadFi
         assignment = get_assignment(db, aid)
         if not assignment:
             return redirect("/admin/cursos")
-        course = get_course(db, assignment["course_id"])
-        if not can_access_course(db, user, course["id"]):
+        course = get_edition(db, assignment["edition_id"])
+        if not can_access_edition(db, user, course["id"]):
             return redirect("/admin/cursos")
     if not archivo or not archivo.filename:
         return redirect(volver, err="Elegí el archivo del examen para importar.")
@@ -861,8 +959,8 @@ def admin_instancia_editar(request: Request, aid: int):
         assignment = get_assignment(db, aid)
         if not assignment:
             return redirect("/admin/cursos")
-        course = get_course(db, assignment["course_id"])
-        if not can_access_course(db, user, course["id"]):
+        course = get_edition(db, assignment["edition_id"])
+        if not can_access_edition(db, user, course["id"]):
             return redirect("/admin/cursos")
     return render(request, "admin_instancia_identidad.html", course=course, assignment=assignment)
 
@@ -879,14 +977,14 @@ def admin_instancia_editar_post(
         assignment = get_assignment(db, aid)
         if not assignment:
             return redirect("/admin/cursos")
-        course = get_course(db, assignment["course_id"])
-        if not can_access_course(db, user, course["id"]):
+        course = get_edition(db, assignment["edition_id"])
+        if not can_access_edition(db, user, course["id"]):
             return redirect("/admin/cursos")
         volver = f"/admin/instancias/{aid}/editar"
         if not name:
             return redirect(volver, err="La instancia necesita un nombre.")
         if db.execute(
-            "SELECT 1 FROM assignments WHERE course_id = ? AND name = ? AND id != ?",
+            "SELECT 1 FROM assignments WHERE edition_id = ? AND name = ? AND id != ?",
             (course["id"], name, aid),
         ).fetchone():
             return redirect(volver, err=f"Ya existe una instancia «{name}» en este curso.")
@@ -918,19 +1016,107 @@ def admin_instancia_crear(request: Request, cid: int, name: str = Form(...), tip
     if tipo not in ("abierto", "escrito", "choice"):
         tipo = "abierto"
     with get_db() as db:
-        course = get_course(db, cid)
-        if not course or not can_access_course(db, user, cid):
+        course = get_edition(db, cid)
+        if not course or not can_access_edition(db, user, cid):
             return redirect("/admin/cursos")
         if not name:
             return redirect(f"/admin/cursos/{cid}/instancias/nueva", err="La instancia necesita un nombre (ej.: TP1, Parcial, Trabajo Final).")
-        if db.execute("SELECT 1 FROM assignments WHERE course_id = ? AND name = ?", (cid, name)).fetchone():
+        if db.execute("SELECT 1 FROM assignments WHERE edition_id = ? AND name = ?", (cid, name)).fetchone():
             return redirect(f"/admin/cursos/{cid}/instancias/nueva", err=f"Ya existe una instancia «{name}» en este curso.")
         cur = db.execute(
-            "INSERT INTO assignments (course_id, name, tipo, active, created_at) VALUES (?, ?, ?, 0, ?)",
+            "INSERT INTO assignments (edition_id, name, tipo, active, created_at) VALUES (?, ?, ?, 0, ?)",
             (cid, name, tipo, utcnow()),
         )
         aid = cur.lastrowid
     return redirect(f"/admin/instancias/{aid}", msg="Instancia creada — completá el material de corrección y activala.")
+
+
+@app.get("/admin/cursos/{cid}/duplicar", response_class=HTMLResponse)
+def admin_edicion_duplicar(request: Request, cid: int):
+    user, resp = _require(request, *STAFF)
+    if resp:
+        return resp
+    with get_db() as db:
+        origen = get_edition(db, cid)
+        if not origen or not can_access_edition(db, user, cid):
+            return redirect("/admin/cursos")
+        instancias = db.execute(
+            "SELECT a.*, (SELECT COUNT(*) FROM assignment_items i WHERE i.assignment_id = a.id) AS n_items"
+            " FROM assignments a WHERE a.edition_id = ? ORDER BY a.id",
+            (cid,),
+        ).fetchall()
+        docentes = db.execute(
+            "SELECT * FROM users WHERE role IN ('docente', 'admin') ORDER BY role = 'admin' DESC, full_name"
+        ).fetchall()
+        origen_docentes = {d["id"] for d in edition_teachers(db, cid)}
+    return render(
+        request, "admin_edicion_duplicar.html", origen=origen, instancias=instancias,
+        docentes=docentes, origen_docentes=origen_docentes,
+        etiqueta_sug=str(datetime.now(AR_TZ).year + 1),
+    )
+
+
+@app.post("/admin/cursos/{cid}/duplicar")
+async def admin_edicion_duplicar_post(request: Request, cid: int):
+    """Copia el armado de una cursada a una edición nueva: instancias con su material,
+    sus preguntas y sus cupos, más el equipo docente. Nunca estudiantes ni entregas."""
+    user, resp = _require(request, *STAFF)
+    if resp:
+        return resp
+    form = await request.form()
+    etiqueta = (form.get("etiqueta") or "").strip()
+    with get_db() as db:
+        origen = get_edition(db, cid)
+        if not origen or not can_access_edition(db, user, cid):
+            return redirect("/admin/cursos")
+        if not etiqueta:
+            return redirect(f"/admin/cursos/{cid}/duplicar", err="La edición nueva necesita una etiqueta.")
+        if db.execute(
+            "SELECT 1 FROM course_editions WHERE course_id = ? AND etiqueta = ?",
+            (origen["course_id"], etiqueta),
+        ).fetchone():
+            return redirect(
+                f"/admin/cursos/{cid}/duplicar",
+                err=f"«{origen['materia']}» ya tiene una edición «{etiqueta}».",
+            )
+
+        nueva = db.execute(
+            "INSERT INTO course_editions (course_id, etiqueta, active, created_at) VALUES (?, ?, 1, ?)",
+            (origen["course_id"], etiqueta, utcnow()),
+        ).lastrowid
+
+        activar = 1 if form.get("activar") == "1" else 0
+        elegidas = {int(x) for x in form.getlist("instancias")}
+        copiadas = 0
+        for a in db.execute("SELECT * FROM assignments WHERE edition_id = ? ORDER BY id", (cid,)):
+            if a["id"] not in elegidas:
+                continue
+            nuevo_aid = db.execute(
+                "INSERT INTO assignments (edition_id, name, active, tipo, consigna, rubrica, respuestas,"
+                " prompt_extra, max_practicas, max_preguntas, created_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (nueva, a["name"], activar, a["tipo"], a["consigna"], a["rubrica"], a["respuestas"],
+                 a["prompt_extra"], a["max_practicas"], a["max_preguntas"], utcnow()),
+            ).lastrowid
+            for i in assignment_items(db, a["id"]):
+                db.execute(
+                    "INSERT INTO assignment_items (assignment_id, orden, enunciado, respuesta, opciones, puntaje)"
+                    " VALUES (?, ?, ?, ?, ?, ?)",
+                    (nuevo_aid, i["orden"], i["enunciado"], i["respuesta"], i["opciones"], i["puntaje"]),
+                )
+            copiadas += 1
+
+        for uid in form.getlist("docentes"):
+            if db.execute("SELECT 1 FROM users WHERE id = ? AND role IN ('docente', 'admin')", (int(uid),)).fetchone():
+                db.execute("INSERT INTO course_teachers (edition_id, user_id) VALUES (?, ?)", (nueva, int(uid)))
+
+    estado = "activas" if activar else "en borrador"
+    return redirect(
+        f"/admin/cursos/{nueva}",
+        msg=f"Edición «{origen['materia']} {etiqueta}» creada a partir de {origen['nombre']}: "
+            f"{copiadas} instancia{'s' if copiadas != 1 else ''} copiada{'s' if copiadas != 1 else ''} {estado}. "
+            "Falta cargar el listado de estudiantes.",
+    )
 
 
 @app.get("/admin/instancias", response_class=HTMLResponse)
@@ -939,7 +1125,7 @@ def admin_instancias(request: Request):
     if resp:
         return resp
     with get_db() as db:
-        cursos = staff_courses(db, user)
+        cursos = staff_editions(db, user)
         rows = []
         for c in cursos:
             for a in db.execute(
@@ -947,7 +1133,7 @@ def admin_instancias(request: Request):
                 " (SELECT COUNT(*) FROM submissions s WHERE s.assignment_id = a.id) AS n_entregas,"
                 " (SELECT COUNT(*) FROM submissions s WHERE s.assignment_id = a.id"
                 "  AND s.kind = 'final' AND s.status = 'pendiente') AS pendientes"
-                " FROM assignments a WHERE a.course_id = ? ORDER BY a.id",
+                " FROM assignments a WHERE a.edition_id = ? ORDER BY a.id",
                 (c["id"],),
             ):
                 rows.append({"a": a, "curso": c})
@@ -960,7 +1146,7 @@ def admin_instancia_nueva_global(request: Request, curso: str | None = None):
     if resp:
         return resp
     with get_db() as db:
-        cursos = staff_courses(db, user)
+        cursos = staff_editions(db, user)
     if not cursos:
         return redirect("/admin/instancias", err="No tenés cursos asignados para crear instancias.")
     return render(
@@ -980,15 +1166,15 @@ def admin_instancia_crear_global(
     if tipo not in ("abierto", "escrito", "choice"):
         tipo = "abierto"
     with get_db() as db:
-        course = get_course(db, curso_id)
-        if not course or not can_access_course(db, user, curso_id):
+        course = get_edition(db, curso_id)
+        if not course or not can_access_edition(db, user, curso_id):
             return redirect("/admin/instancias", err="No podés crear instancias en ese curso.")
         if not name:
             return redirect("/admin/instancias/nueva", err="La instancia necesita un nombre (ej.: TP1, Parcial, Trabajo Final).")
-        if db.execute("SELECT 1 FROM assignments WHERE course_id = ? AND name = ?", (curso_id, name)).fetchone():
+        if db.execute("SELECT 1 FROM assignments WHERE edition_id = ? AND name = ?", (curso_id, name)).fetchone():
             return redirect(f"/admin/instancias/nueva?curso={curso_id}", err=f"Ya existe una instancia «{name}» en ese curso.")
         cur = db.execute(
-            "INSERT INTO assignments (course_id, name, tipo, active, created_at) VALUES (?, ?, ?, 0, ?)",
+            "INSERT INTO assignments (edition_id, name, tipo, active, created_at) VALUES (?, ?, ?, 0, ?)",
             (curso_id, name, tipo, utcnow()),
         )
         aid = cur.lastrowid
@@ -1004,8 +1190,8 @@ def admin_instancia(request: Request, aid: int):
         assignment = get_assignment(db, aid)
         if not assignment:
             return redirect("/admin/cursos")
-        course = get_course(db, assignment["course_id"])
-        if not can_access_course(db, user, course["id"]):
+        course = get_edition(db, assignment["edition_id"])
+        if not can_access_edition(db, user, course["id"]):
             return redirect("/admin/cursos")
         n_entregas = db.execute(
             "SELECT COUNT(*) n FROM submissions WHERE assignment_id = ?", (aid,)
@@ -1028,8 +1214,8 @@ async def admin_instancia_post(request: Request, aid: int):
         assignment = get_assignment(db, aid)
         if not assignment:
             return redirect("/admin/cursos")
-        course = get_course(db, assignment["course_id"])
-        if not can_access_course(db, user, course["id"]):
+        course = get_edition(db, assignment["edition_id"])
+        if not can_access_edition(db, user, course["id"]):
             return redirect("/admin/cursos")
         cid = course["id"]
         if action == "eliminar":
@@ -1047,7 +1233,7 @@ async def admin_instancia_post(request: Request, aid: int):
             return redirect(f"/admin/instancias/{aid}", err="Los cupos deben ser números (prácticas 1–10, preguntas 0–10).")
         name = (form.get("name") or "").strip() or assignment["name"]
         if name != assignment["name"] and db.execute(
-            "SELECT 1 FROM assignments WHERE course_id = ? AND name = ? AND id != ?", (cid, name, aid)
+            "SELECT 1 FROM assignments WHERE edition_id = ? AND name = ? AND id != ?", (cid, name, aid)
         ).fetchone():
             return redirect(f"/admin/instancias/{aid}", err=f"Ya existe una instancia «{name}» en este curso.")
         tipo = form.get("tipo", assignment["tipo"])
@@ -1160,11 +1346,13 @@ def admin_docentes(request: Request):
         return resp
     with get_db() as db:
         rows = db.execute(
-            "SELECT u.*, (SELECT GROUP_CONCAT(c.name, ' · ') FROM course_teachers ct "
-            " JOIN courses c ON c.id = ct.course_id WHERE ct.user_id = u.id) AS cursos "
+            "SELECT u.*, (SELECT GROUP_CONCAT(c.name || ' ' || ce.etiqueta, ' · ') FROM course_teachers ct "
+            " JOIN course_editions ce ON ce.id = ct.edition_id"
+            " JOIN courses c ON c.id = ce.course_id"
+            " WHERE ct.user_id = u.id) AS cursos "
             "FROM users u WHERE u.role IN ('docente', 'admin') ORDER BY u.role = 'admin' DESC, u.full_name"
         ).fetchall()
-        cursos = db.execute("SELECT * FROM courses ORDER BY name").fetchall()
+        cursos = staff_editions(db, user)
     return render(request, "admin_docentes.html", rows=rows, cursos=cursos)
 
 
@@ -1174,7 +1362,7 @@ def admin_docente_nuevo(request: Request):
     if resp:
         return resp
     with get_db() as db:
-        cursos = db.execute("SELECT * FROM courses ORDER BY name").fetchall()
+        cursos = staff_editions(db, user)
     return render(request, "admin_docente_nuevo.html", cursos=cursos)
 
 
@@ -1202,7 +1390,7 @@ async def admin_docentes_crear(request: Request):
         )
         uid = cur.lastrowid
         for cid in form.getlist("cursos"):
-            db.execute("INSERT INTO course_teachers (course_id, user_id) VALUES (?, ?)", (int(cid), uid))
+            db.execute("INSERT INTO course_teachers (edition_id, user_id) VALUES (?, ?)", (int(cid), uid))
     return redirect("/admin/docentes", msg=f"Docente {nombre} creado → usuario: {login_id} · contraseña: {password}")
 
 
@@ -1215,9 +1403,9 @@ def admin_docente(request: Request, uid: int):
         doc = db.execute("SELECT * FROM users WHERE id = ? AND role IN ('docente', 'admin')", (uid,)).fetchone()
         if not doc:
             return redirect("/admin/docentes")
-        cursos = db.execute("SELECT * FROM courses ORDER BY name").fetchall()
-        propios = {r["course_id"] for r in db.execute(
-            "SELECT course_id FROM course_teachers WHERE user_id = ?", (uid,)
+        cursos = staff_editions(db, user)
+        propios = {r["edition_id"] for r in db.execute(
+            "SELECT edition_id FROM course_teachers WHERE user_id = ?", (uid,)
         )}
     return render(request, "admin_docente.html", doc=doc, cursos=cursos, propios=propios)
 
@@ -1257,7 +1445,7 @@ async def admin_docente_post(request: Request, uid: int):
             )
             db.execute("DELETE FROM course_teachers WHERE user_id = ?", (uid,))
             for cid in form.getlist("cursos"):
-                db.execute("INSERT INTO course_teachers (course_id, user_id) VALUES (?, ?)", (int(cid), uid))
+                db.execute("INSERT INTO course_teachers (edition_id, user_id) VALUES (?, ?)", (int(cid), uid))
             return redirect(f"/admin/docentes/{uid}", msg="Ficha actualizada.")
         if action == "toggle":
             db.execute("UPDATE users SET active = ? WHERE id = ?", (0 if doc["active"] else 1, uid))
@@ -1274,7 +1462,7 @@ async def admin_docente_post(request: Request, uid: int):
 
 # ---------------------------------------------------------------- staff: estudiantes
 
-def _crear_o_inscribir(db, course_id: int, dni: str, nombre: str, email: str, profile: str = "") -> tuple[str, str]:
+def _crear_o_inscribir(db, edition_id: int, dni: str, nombre: str, email: str, profile: str = "") -> tuple[str, str]:
     """Devuelve (resultado, dato): ('creado', password) | ('inscripto'|'ya_estaba', nombre) | ('error', motivo)."""
     if not dni.isdigit() or not (6 <= len(dni) <= 9):
         return "error", f"DNI inválido ({dni})"
@@ -1284,7 +1472,7 @@ def _crear_o_inscribir(db, course_id: int, dni: str, nombre: str, email: str, pr
             return "error", f"{dni} ya existe y no es estudiante"
         if profile:
             db.execute("UPDATE users SET profile = ? WHERE id = ?", (profile, row["id"]))
-        if enroll(db, row["id"], course_id):
+        if enroll(db, row["id"], edition_id):
             return "inscripto", row["full_name"]
         return "ya_estaba", row["full_name"]
     password = auth.generate_password()
@@ -1293,11 +1481,11 @@ def _crear_o_inscribir(db, course_id: int, dni: str, nombre: str, email: str, pr
         " VALUES (?, ?, ?, ?, ?, 'student', 1, ?, ?)",
         (dni, auth.hash_password(password), password, nombre, email, profile, utcnow()),
     )
-    enroll(db, cur.lastrowid, course_id)
+    enroll(db, cur.lastrowid, edition_id)
     return "creado", password
 
 
-def _alta_estudiantes(db, course_id: int, lines: list[str]):
+def _alta_estudiantes(db, edition_id: int, lines: list[str]):
     """Crea/inscribe estudiantes desde líneas «DNI, Apellido y Nombre, correo»."""
     creados, inscriptos, ya_estaban, errores = [], [], [], []
     for i, line in enumerate(lines, 1):
@@ -1312,7 +1500,7 @@ def _alta_estudiantes(db, course_id: int, lines: list[str]):
             continue
         dni, nombre = parts[0], parts[1]
         email = parts[2] if len(parts) > 2 else ""
-        res, dato = _crear_o_inscribir(db, course_id, dni, nombre, email)
+        res, dato = _crear_o_inscribir(db, edition_id, dni, nombre, email)
         if res == "creado":
             creados.append((nombre, dato))
         elif res == "inscripto":
@@ -1331,14 +1519,14 @@ def admin_estudiantes(request: Request, curso: str | None = None):
         return resp
     curso = _curso_param(curso)
     with get_db() as db:
-        cursos = staff_courses(db, user)
+        cursos = staff_editions(db, user)
         ids = _scope_ids(db, user)
-        if curso is not None and not can_access_course(db, user, curso):
+        if curso is not None and not can_access_edition(db, user, curso):
             return redirect("/admin/estudiantes")
         if curso is not None:
             students = db.execute(
                 "SELECT DISTINCT u.* FROM users u JOIN enrollments e ON e.user_id = u.id "
-                "WHERE u.role = 'student' AND e.course_id = ? ORDER BY u.full_name", (curso,)
+                "WHERE u.role = 'student' AND e.edition_id = ? ORDER BY u.full_name", (curso,)
             ).fetchall()
         elif ids is None:
             students = db.execute(
@@ -1348,7 +1536,7 @@ def admin_estudiantes(request: Request, curso: str | None = None):
             marks = ",".join("?" * len(ids))
             students = db.execute(
                 f"SELECT DISTINCT u.* FROM users u JOIN enrollments e ON e.user_id = u.id "
-                f"WHERE u.role = 'student' AND e.course_id IN ({marks}) ORDER BY u.full_name", ids
+                f"WHERE u.role = 'student' AND e.edition_id IN ({marks}) ORDER BY u.full_name", ids
             ).fetchall()
         else:
             students = []
@@ -1357,8 +1545,9 @@ def admin_estudiantes(request: Request, curso: str | None = None):
             detalle[s["id"]] = db.execute(
                 "SELECT c.id AS cid, c.name,"
                 " (SELECT COUNT(*) FROM submissions x JOIN assignments a ON a.id = x.assignment_id"
-                "  WHERE x.user_id = e.user_id AND a.course_id = c.id) AS n_entregas"
-                " FROM enrollments e JOIN courses c ON c.id = e.course_id"
+                "  WHERE x.user_id = e.user_id AND a.edition_id = ed.id) AS n_entregas"
+                " FROM enrollments e JOIN course_editions ed ON ed.id = e.edition_id"
+                " JOIN courses c ON c.id = ed.course_id"
                 " WHERE e.user_id = ? ORDER BY c.name",
                 (s["id"],),
             ).fetchall()
@@ -1374,7 +1563,7 @@ def admin_estudiante_nuevo(request: Request, curso: str | None = None):
     if resp:
         return resp
     with get_db() as db:
-        cursos = staff_courses(db, user)
+        cursos = staff_editions(db, user)
     if not cursos:
         return redirect("/admin/estudiantes", err="No tenés cursos asignados para dar altas.")
     return render(request, "admin_estudiante_nuevo.html", cursos=cursos, curso_f=_curso_param(curso))
@@ -1386,7 +1575,7 @@ def admin_estudiantes_importar(request: Request, curso: str | None = None):
     if resp:
         return resp
     with get_db() as db:
-        cursos = staff_courses(db, user)
+        cursos = staff_editions(db, user)
     if not cursos:
         return redirect("/admin/estudiantes", err="No tenés cursos asignados para importar estudiantes.")
     return render(request, "admin_estudiantes_importar.html", cursos=cursos, curso_f=_curso_param(curso))
@@ -1404,7 +1593,7 @@ def admin_alta(
     if not full_name:
         return redirect(f"/admin/estudiantes/nuevo?curso={curso_id}", err="Falta el apellido y nombre.")
     with get_db() as db:
-        if not can_access_course(db, user, curso_id) or not get_course(db, curso_id):
+        if not can_access_edition(db, user, curso_id) or not get_edition(db, curso_id):
             return redirect("/admin/estudiantes", err="No podés dar altas en ese curso.")
         res, dato = _crear_o_inscribir(db, curso_id, dni, full_name, email.strip(), profile.strip())
     if res == "error":
@@ -1440,7 +1629,7 @@ async def admin_cargar(
     if not lines:
         return redirect(f"/admin/estudiantes/importar?curso={curso_id}", err="Subí un CSV o pegá el listado.")
     with get_db() as db:
-        if not can_access_course(db, user, curso_id) or not get_course(db, curso_id):
+        if not can_access_edition(db, user, curso_id) or not get_edition(db, curso_id):
             return redirect("/admin/estudiantes", err="No podés dar altas en ese curso.")
         creados, inscriptos, ya_estaban, errores = _alta_estudiantes(db, curso_id, lines)
     msg = f"Se crearon {len(creados)} estudiantes."
@@ -1474,19 +1663,21 @@ def admin_ficha(request: Request, uid: int):
         if not row or not _student_in_scope(db, user, uid):
             return redirect("/admin/estudiantes")
         entregas = db.execute(
-            "SELECT s.*, a.name AS instancia, c.name AS course_name FROM submissions s "
-            "JOIN assignments a ON a.id = s.assignment_id JOIN courses c ON c.id = a.course_id "
+            "SELECT s.*, a.name AS instancia, c.name || ' ' || ce.etiqueta AS course_name FROM submissions s "
+            "JOIN assignments a ON a.id = s.assignment_id JOIN course_editions ce ON ce.id = a.edition_id "
+            "JOIN courses c ON c.id = ce.course_id "
             "WHERE s.user_id = ? ORDER BY s.id DESC", (uid,)
         ).fetchall()
         inscripciones = db.execute(
             "SELECT c.*, e.id AS eid,"
             " (SELECT COUNT(*) FROM submissions s JOIN assignments a ON a.id = s.assignment_id"
-            "  WHERE s.user_id = ? AND a.course_id = c.id) AS n_entregas"
-            " FROM enrollments e JOIN courses c ON c.id = e.course_id WHERE e.user_id = ? ORDER BY c.name",
+            "  WHERE s.user_id = ? AND a.edition_id = ed.id) AS n_entregas"
+            " FROM enrollments e JOIN course_editions ed ON ed.id = e.edition_id"
+            " JOIN courses c ON c.id = ed.course_id WHERE e.user_id = ? ORDER BY c.name, ed.created_at DESC",
             (uid, uid),
         ).fetchall()
         inscripto_ids = {i["id"] for i in inscripciones}
-        disponibles = [c for c in staff_courses(db, user) if c["id"] not in inscripto_ids and c["active"]]
+        disponibles = [c for c in staff_editions(db, user) if c["id"] not in inscripto_ids and c["active"]]
     return render(
         request, "admin_ficha.html", est=row, entregas=entregas,
         inscripciones=inscripciones, disponibles=disponibles,
@@ -1531,17 +1722,17 @@ def admin_ficha_post(
             )
             return redirect(f"/admin/estudiantes/{uid}", msg=f"Nueva contraseña: {password}")
         if action == "inscribir":
-            if not can_access_course(db, user, curso_id) or not get_course(db, curso_id):
+            if not can_access_edition(db, user, curso_id) or not get_edition(db, curso_id):
                 return redirect(f"/admin/estudiantes/{uid}", err="No podés inscribir en ese curso.")
             if enroll(db, uid, curso_id):
                 return redirect(f"/admin/estudiantes/{uid}", msg="Inscripción agregada.")
             return redirect(f"/admin/estudiantes/{uid}", msg="Ya estaba inscripto/a en ese curso.")
         if action == "desinscribir":
-            if not can_access_course(db, user, curso_id):
+            if not can_access_edition(db, user, curso_id):
                 return redirect(f"/admin/estudiantes/{uid}", err="No podés modificar ese curso.")
             n = db.execute(
                 "SELECT COUNT(*) n FROM submissions s JOIN assignments a ON a.id = s.assignment_id "
-                "WHERE s.user_id = ? AND a.course_id = ?", (uid, curso_id)
+                "WHERE s.user_id = ? AND a.edition_id = ?", (uid, curso_id)
             ).fetchone()["n"]
             if n:
                 return redirect(
@@ -1549,7 +1740,7 @@ def admin_ficha_post(
                     err="Tiene entregas en ese curso: no se puede desinscribir sin perder historial. "
                         "Si hace falta, deshabilitá al estudiante.",
                 )
-            db.execute("DELETE FROM enrollments WHERE user_id = ? AND course_id = ?", (uid, curso_id))
+            db.execute("DELETE FROM enrollments WHERE user_id = ? AND edition_id = ?", (uid, curso_id))
             return redirect(f"/admin/estudiantes/{uid}", msg="Inscripción quitada.")
     return redirect(f"/admin/estudiantes/{uid}")
 
@@ -1562,12 +1753,12 @@ def admin_credenciales(request: Request, curso: str | None = None):
     curso = _curso_param(curso)
     with get_db() as db:
         ids = _scope_ids(db, user)
-        if curso is not None and not can_access_course(db, user, curso):
+        if curso is not None and not can_access_edition(db, user, curso):
             return redirect("/admin/estudiantes")
         if curso is not None:
             rows = db.execute(
                 "SELECT DISTINCT u.login, u.full_name, u.email, u.initial_password FROM users u "
-                "JOIN enrollments e ON e.user_id = u.id WHERE u.role = 'student' AND e.course_id = ? "
+                "JOIN enrollments e ON e.user_id = u.id WHERE u.role = 'student' AND e.edition_id = ? "
                 "AND u.initial_password IS NOT NULL ORDER BY u.full_name", (curso,)
             ).fetchall()
         elif ids is None:
@@ -1579,7 +1770,7 @@ def admin_credenciales(request: Request, curso: str | None = None):
             marks = ",".join("?" * len(ids))
             rows = db.execute(
                 f"SELECT DISTINCT u.login, u.full_name, u.email, u.initial_password FROM users u "
-                f"JOIN enrollments e ON e.user_id = u.id WHERE u.role = 'student' AND e.course_id IN ({marks}) "
+                f"JOIN enrollments e ON e.user_id = u.id WHERE u.role = 'student' AND e.edition_id IN ({marks}) "
                 f"AND u.initial_password IS NOT NULL ORDER BY u.full_name", ids
             ).fetchall()
         else:

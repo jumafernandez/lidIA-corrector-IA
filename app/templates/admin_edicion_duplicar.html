@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Duplicar {{ origen.nombre }}{% endblock %}
+{% block content %}
+<p class="crumbs"><a href="{{ base }}/admin/cursos/{{ origen.id }}">← {{ origen.nombre }}</a></p>
+<h1>Duplicar edición</h1>
+<p class="muted small guia">Se copia el armado de la cursada, no la gente. Partís de
+<strong>{{ origen.nombre }}</strong> y creás otra edición de {{ origen.materia }}.</p>
+
+<form method="post" action="{{ base }}/admin/cursos/{{ origen.id }}/duplicar">
+<section class="card">
+  <h2>Edición nueva</h2>
+  <div class="grid2">
+    <label>Materia
+      <input value="{{ origen.materia }}" disabled>
+    </label>
+    <label>Etiqueta
+      <input name="etiqueta" required autofocus value="{{ etiqueta_sug }}">
+      <span class="ayuda">Distinta de «{{ origen.etiqueta }}».</span>
+    </label>
+  </div>
+</section>
+
+<section class="card">
+  <h2>Instancias que se copian</h2>
+  <table>
+    <thead><tr><th style="width: 34px"></th><th>Instancia</th><th>Tipo</th><th>Material</th></tr></thead>
+    <tbody>
+    {% for a in instancias %}
+      <tr>
+        <td><input type="checkbox" name="instancias" value="{{ a.id }}" checked style="width: auto"></td>
+        <td><b>{{ a.name }}</b>{% if not a.active %} <span class="pill pill-mini pill-warn">Borrador</span>{% endif %}</td>
+        <td class="muted small">{{ {'abierto': 'Trabajo abierto', 'escrito': 'Examen escrito', 'choice': 'Multiple choice'}[a.tipo] }}</td>
+        <td class="muted small">
+          {% if a.consigna %}consigna{% endif %}{% if a.rubrica %} · rúbrica{% endif %}{% if a.respuestas %} · clave{% endif %}
+          {% if a.n_items %} · {{ a.n_items }} pregunta{{ 's' if a.n_items != 1 }}{% endif %}
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="4" class="muted">Esta edición no tiene instancias: la copia va a quedar vacía.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <label style="font-weight: 400; margin-top: 14px">
+    <input type="checkbox" name="activar" value="1" style="width: auto; margin-right: 8px">
+    Copiarlas ya activas (visibles para el estudiantado)
+  </label>
+  <p class="muted small">Si no la tildás llegan como borrador, que es lo recomendado: casi siempre hay algo que
+  retocar de un año al otro.</p>
+</section>
+
+<section class="card">
+  <h2>Equipo docente</h2>
+  {% for d in docentes %}
+    <label style="font-weight: 400">
+      <input type="checkbox" name="docentes" value="{{ d.id }}" {{ 'checked' if d.id in origen_docentes }} style="width: auto; margin-right: 8px">
+      {{ d.full_name }} <span class="muted small">({{ d.login }}{{ ' · coordinación' if d.role == 'admin' }})</span>
+    </label>
+  {% endfor %}
+  <p class="muted small">Vienen tildados los de {{ origen.etiqueta }}. Si el equipo cambió, ajustalo: cada edición tiene el suyo.</p>
+</section>
+
+<section class="card">
+  <h2>Qué no se copia</h2>
+  <p class="muted small">Los estudiantes inscriptos, las entregas, las devoluciones y las preguntas.
+  {{ origen.nombre }} no se modifica ni se mueve: sigue tal cual.</p>
+</section>
+
+<div class="savebar">
+  <button type="submit" class="btn primary">Duplicar edición</button>
+  <a class="btn ghost" href="{{ base }}/admin/cursos/{{ origen.id }}">Cancelar</a>
+</div>
+</form>
+{% endblock %}

@@ -7,3 +7,7 @@ data/
 # Documentación e infraestructura del despliegue institucional (UNLu / CIDETIC):
 # rutas del servidor, proxy y unidad de systemd. Queda fuera del repositorio público.
 deploy/
+
+# respaldos locales de la base
+data/*.respaldo-*
+data/*.v1-*

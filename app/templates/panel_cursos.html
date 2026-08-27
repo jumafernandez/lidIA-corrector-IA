@@ -15,12 +15,17 @@
 {% endif %}
 
 {% for it in items %}
-<section class="card">
+<section class="card {{ 'card-archivada' if not it.c.active }}">
   <div class="row-between">
-    <h2><a href="{{ base }}/panel/{{ it.c.id }}">{{ it.c.name }}</a></h2>
-    <span class="pill pill-mini">{{ it.n_instancias }} instancia{{ 's' if it.n_instancias != 1 }} de evaluación</span>
+    <h2><a href="{{ base }}/panel/{{ it.c.id }}">{{ it.c.materia }} <span class="pill pill-edicion">{{ it.c.etiqueta }}</span></a></h2>
+    <span>
+      {% if not it.c.active %}<span class="pill pill-mini">Cursada cerrada</span>{% endif %}
+      <span class="pill pill-mini">{{ it.n_instancias }} instancia{{ 's' if it.n_instancias != 1 }} de evaluación</span>
+    </span>
   </div>
-  <p class="muted"><a href="{{ base }}/panel/{{ it.c.id }}">Entrar →</a></p>
+  <p class="muted">
+    {% if not it.c.active %}Esta cursada terminó: podés consultar tus entregas y devoluciones, pero no presentar nada nuevo.{% endif %}
+    <a href="{{ base }}/panel/{{ it.c.id }}">{{ 'Ver mis entregas →' if not it.c.active else 'Entrar →' }}</a></p>
 </section>
 {% else %}
 <section class="card center-note">

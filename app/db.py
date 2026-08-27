@@ -23,19 +23,32 @@ CREATE TABLE IF NOT EXISTS users (
     created_at TEXT NOT NULL
 );
 
+-- La MATERIA: el nombre estable, sin año ni cuatrimestre.
 CREATE TABLE IF NOT EXISTS courses (
     id INTEGER PRIMARY KEY,
     name TEXT NOT NULL UNIQUE,
-    active INTEGER NOT NULL DEFAULT 1,     -- inactivo = no aparece en el panel ni admite entregas
+    active INTEGER NOT NULL DEFAULT 1,     -- inactiva = no se ofrece para ediciones nuevas
     created_at TEXT NOT NULL
 );
 
--- Instancias de evaluación de un curso (TP, parcial domiciliario, trabajo final...).
+-- La EDICIÓN: una cursada concreta de esa materia («2026», «2026 2C», «Contracursada 2025»).
+-- Todo lo que ocurre durante una cursada —estudiantes, docentes, instancias— cuelga de acá.
+CREATE TABLE IF NOT EXISTS course_editions (
+    id INTEGER PRIMARY KEY,
+    course_id INTEGER NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+    etiqueta TEXT NOT NULL,
+    active INTEGER NOT NULL DEFAULT 1,     -- inactiva = cursada cerrada (solo lectura)
+    created_at TEXT NOT NULL,
+    UNIQUE (course_id, etiqueta)
+);
+CREATE INDEX IF NOT EXISTS idx_course_editions_course ON course_editions(course_id);
+
+-- Instancias de evaluación de una edición (TP, parcial domiciliario, trabajo final...).
 -- tipo: 'abierto' (consigna + rúbrica), 'escrito' (examen con respuestas esperadas),
 --       'choice' (multiple choice con clave; entrega única, sin prácticas).
 CREATE TABLE IF NOT EXISTS assignments (
     id INTEGER PRIMARY KEY,
-    course_id INTEGER NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+    edition_id INTEGER NOT NULL REFERENCES course_editions(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     active INTEGER NOT NULL DEFAULT 0,     -- se activa cuando el material de corrección está listo
     tipo TEXT NOT NULL DEFAULT 'abierto' CHECK (tipo IN ('abierto', 'escrito', 'choice')),
@@ -46,7 +59,7 @@ CREATE TABLE IF NOT EXISTS assignments (
     max_practicas INTEGER NOT NULL DEFAULT 3,
     max_preguntas INTEGER NOT NULL DEFAULT 3,
     created_at TEXT NOT NULL,
-    UNIQUE (course_id, name)
+    UNIQUE (edition_id, name)
 );
 
 -- Preguntas de una instancia (por ahora, exámenes escritos). El campo opciones
@@ -61,18 +74,21 @@ CREATE TABLE IF NOT EXISTS assignment_items (
     puntaje REAL NOT NULL DEFAULT 1
 );
 
+-- El equipo docente es de la edición: cambia de una cursada a la otra.
 CREATE TABLE IF NOT EXISTS course_teachers (
-    course_id INTEGER NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+    edition_id INTEGER NOT NULL REFERENCES course_editions(id) ON DELETE CASCADE,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    PRIMARY KEY (course_id, user_id)
+    PRIMARY KEY (edition_id, user_id)
 );
 
+-- Quien recursa queda inscripto en dos ediciones de la misma materia, con sus
+-- cupos y sus entregas separados.
 CREATE TABLE IF NOT EXISTS enrollments (
     id INTEGER PRIMARY KEY,
-    course_id INTEGER NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+    edition_id INTEGER NOT NULL REFERENCES course_editions(id) ON DELETE CASCADE,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     created_at TEXT NOT NULL,
-    UNIQUE (course_id, user_id)
+    UNIQUE (edition_id, user_id)
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
@@ -186,41 +202,75 @@ def set_config(db, key: str, value: str):
     )
 
 
-# ---------------------------------------------------------------- cursos
+# ---------------------------------------------------------------- materias
 
 def get_course(db, course_id: int):
+    """La materia (el nombre estable, sin período)."""
     return db.execute("SELECT * FROM courses WHERE id = ?", (course_id,)).fetchone()
 
 
-def teacher_course_ids(db, user) -> list | None:
-    """Cursos que este usuario staff puede administrar. None = todos (coordinación)."""
+def all_courses(db, only_active: bool = False):
+    q = "SELECT * FROM courses"
+    if only_active:
+        q += " WHERE active = 1"
+    return db.execute(q + " ORDER BY name").fetchall()
+
+
+# ---------------------------------------------------------------- ediciones
+#
+# `nombre` es el nombre completo que se muestra en pantalla («Álgebra 2026 2C»);
+# se arma en SQL para que las plantillas no tengan que componerlo en cada lugar.
+
+EDICION_SELECT = """
+SELECT ed.*, c.name AS materia, c.active AS materia_active,
+       c.name || ' ' || ed.etiqueta AS nombre,
+       c.name || ' ' || ed.etiqueta AS name
+  FROM course_editions ed JOIN courses c ON c.id = ed.course_id
+"""
+
+
+def get_edition(db, edition_id: int):
+    return db.execute(EDICION_SELECT + " WHERE ed.id = ?", (edition_id,)).fetchone()
+
+
+def course_editions(db, course_id: int):
+    """Ediciones de una materia, de la más reciente a la más vieja."""
+    return db.execute(
+        EDICION_SELECT + " WHERE ed.course_id = ? ORDER BY ed.created_at DESC, ed.id DESC",
+        (course_id,),
+    ).fetchall()
+
+
+def teacher_edition_ids(db, user) -> list | None:
+    """Ediciones que este usuario staff administra. None = todas (coordinación)."""
     if user["role"] == "admin":
         return None
-    rows = db.execute("SELECT course_id FROM course_teachers WHERE user_id = ?", (user["id"],)).fetchall()
-    return [r["course_id"] for r in rows]
+    rows = db.execute("SELECT edition_id FROM course_teachers WHERE user_id = ?", (user["id"],)).fetchall()
+    return [r["edition_id"] for r in rows]
 
 
-def staff_courses(db, user):
-    """Cursos visibles para un usuario staff, orden alfabético."""
-    ids = teacher_course_ids(db, user)
+def staff_editions(db, user):
+    """Ediciones visibles para un usuario staff, agrupables por materia."""
+    ids = teacher_edition_ids(db, user)
+    orden = " ORDER BY c.name, ed.created_at DESC, ed.etiqueta"
     if ids is None:
-        return db.execute("SELECT * FROM courses ORDER BY name").fetchall()
+        return db.execute(EDICION_SELECT + orden).fetchall()
     if not ids:
         return []
     marks = ",".join("?" * len(ids))
-    return db.execute(f"SELECT * FROM courses WHERE id IN ({marks}) ORDER BY name", ids).fetchall()
+    return db.execute(EDICION_SELECT + f" WHERE ed.id IN ({marks})" + orden, ids).fetchall()
 
 
-def can_access_course(db, user, course_id: int) -> bool:
-    ids = teacher_course_ids(db, user)
-    return ids is None or course_id in ids
+def can_access_edition(db, user, edition_id: int) -> bool:
+    ids = teacher_edition_ids(db, user)
+    return ids is None or edition_id in ids
 
 
-def course_teachers(db, course_id: int):
+def edition_teachers(db, edition_id: int):
     return db.execute(
         "SELECT u.* FROM users u JOIN course_teachers ct ON ct.user_id = u.id "
-        "WHERE ct.course_id = ? ORDER BY u.full_name",
-        (course_id,),
+        "WHERE ct.edition_id = ? ORDER BY u.full_name",
+        (edition_id,),
     ).fetchall()
 
 
@@ -230,11 +280,11 @@ def get_assignment(db, assignment_id: int):
     return db.execute("SELECT * FROM assignments WHERE id = ?", (assignment_id,)).fetchone()
 
 
-def course_assignments(db, course_id: int, only_active: bool = False):
-    q = "SELECT * FROM assignments WHERE course_id = ?"
+def edition_assignments(db, edition_id: int, only_active: bool = False):
+    q = "SELECT * FROM assignments WHERE edition_id = ?"
     if only_active:
         q += " AND active = 1"
-    return db.execute(q + " ORDER BY id", (course_id,)).fetchall()
+    return db.execute(q + " ORDER BY id", (edition_id,)).fetchall()
 
 
 def assignment_items(db, assignment_id: int):
@@ -248,12 +298,17 @@ def items_puntaje_total(items) -> float:
     return sum(i["puntaje"] for i in items)
 
 
-def assignment_cfg(db, course, assignment) -> dict:
-    """Config que consume el LLM: lo propio de la instancia + contexto + lo global."""
+def assignment_cfg(db, edicion, assignment) -> dict:
+    """Config que consume el LLM: lo propio de la instancia + contexto + lo global.
+
+    Al modelo se le manda la MATERIA, no la edición: la corrección de un TP de
+    Álgebra no cambia porque sea la cursada de 2026 o la de 2027, y meter el
+    período solo agrega ruido al prompt.
+    """
     g = get_config(db)
     items = assignment_items(db, assignment["id"])
     return {
-        "curso": course["name"],
+        "curso": edicion["materia"],
         "instancia": assignment["name"],
         "tipo": assignment["tipo"],
         "consigna": assignment["consigna"],
@@ -280,28 +335,32 @@ def assignment_cfg(db, course, assignment) -> dict:
 
 # ---------------------------------------------------------------- inscripciones
 
-def student_courses(db, user_id: int):
-    """Cursos activos en los que está inscripto un estudiante."""
+def student_editions(db, user_id: int):
+    """Ediciones en las que está inscripto un estudiante, la más reciente primero.
+
+    Incluye las cerradas: quien terminó la cursada tiene que poder releer sus
+    devoluciones. El bloqueo de entregas nuevas se hace al entregar, no acá.
+    """
     return db.execute(
-        "SELECT c.* FROM courses c JOIN enrollments e ON e.course_id = c.id "
-        "WHERE e.user_id = ? AND c.active = 1 ORDER BY c.name",
+        EDICION_SELECT + " JOIN enrollments e ON e.edition_id = ed.id "
+        "WHERE e.user_id = ? ORDER BY c.name, ed.created_at DESC",
         (user_id,),
     ).fetchall()
 
 
-def is_enrolled(db, user_id: int, course_id: int) -> bool:
+def is_enrolled(db, user_id: int, edition_id: int) -> bool:
     return bool(db.execute(
-        "SELECT 1 FROM enrollments WHERE user_id = ? AND course_id = ?", (user_id, course_id)
+        "SELECT 1 FROM enrollments WHERE user_id = ? AND edition_id = ?", (user_id, edition_id)
     ).fetchone())
 
 
-def enroll(db, user_id: int, course_id: int) -> bool:
+def enroll(db, user_id: int, edition_id: int) -> bool:
     """Inscribe si no estaba. Devuelve True si creó la inscripción."""
-    if is_enrolled(db, user_id, course_id):
+    if is_enrolled(db, user_id, edition_id):
         return False
     db.execute(
-        "INSERT INTO enrollments (course_id, user_id, created_at) VALUES (?, ?, ?)",
-        (course_id, user_id, utcnow()),
+        "INSERT INTO enrollments (edition_id, user_id, created_at) VALUES (?, ?, ?)",
+        (edition_id, user_id, utcnow()),
     )
     return True
 

@@ -3,27 +3,38 @@
 {% block content %}
 <div class="row-between head">
   <h1>Cursos</h1>
-  {% if user.role == 'admin' %}
-  <a class="btn small primary" href="{{ base }}/admin/cursos/nuevo">Nuevo curso</a>
-  {% endif %}
+  <span class="toolbar">
+    {% if user.role == 'admin' %}
+    <a class="btn small" href="{{ base }}/admin/materias">Materias</a>
+    <a class="btn small primary" href="{{ base }}/admin/cursos/nuevo">Nueva edición</a>
+    {% endif %}
+  </span>
 </div>
+<p class="muted small guia">Cada fila es una <strong>cursada</strong>: una edición de su materia. Los estudiantes,
+los docentes y las instancias son propios de cada edición.</p>
 
 <section class="card">
   <table>
-    <thead><tr><th>Curso</th><th>Docentes</th><th>Instancias</th><th>Estudiantes</th><th>Finales por revisar</th><th>Estado</th><th></th></tr></thead>
+    <thead><tr><th>Edición</th><th>Docentes</th><th>Instancias</th><th>Estudiantes</th><th>Finales por revisar</th><th>Estado</th><th></th></tr></thead>
     <tbody>
-    {% for r in rows %}
+    {% for g in grupos %}
+      <tr class="grupo"><th colspan="7">{{ g.materia }}</th></tr>
+      {% for r in g.ediciones %}
       <tr>
-        <td><a href="{{ base }}/admin/cursos/{{ r.c.id }}">{{ r.c.name }}</a></td>
+        <td><a href="{{ base }}/admin/cursos/{{ r.c.id }}"><b>{{ r.c.etiqueta }}</b></a></td>
         <td class="muted small">{% for d in r.docentes %}{{ d.full_name }}{{ ' · ' if not loop.last }}{% else %}—{% endfor %}</td>
         <td>{{ r.n_inst }}</td>
         <td>{{ r.n_est }}</td>
         <td>{% if r.pendientes %}<span class="pill pill-mini pill-warn">{{ r.pendientes }}</span>{% else %}—{% endif %}</td>
-        <td><span class="pill pill-mini {{ 'pill-ok' if r.c.active else 'pill-warn' }}">{{ 'Activo' if r.c.active else 'Inactivo' }}</span></td>
-        <td><a class="btn small" href="{{ base }}/admin/cursos/{{ r.c.id }}">Ficha</a></td>
+        <td><span class="pill pill-mini {{ 'pill-ok' if r.c.active else 'pill-warn' }}">{{ 'Abierta' if r.c.active else 'Cerrada' }}</span></td>
+        <td class="acciones">
+          <a class="btn small" href="{{ base }}/admin/cursos/{{ r.c.id }}">Ficha</a>
+          <a class="btn small ghost" href="{{ base }}/admin/cursos/{{ r.c.id }}/duplicar">Duplicar</a>
+        </td>
       </tr>
+      {% endfor %}
     {% else %}
-      <tr><td colspan="7" class="muted">{% if user.role == 'admin' %}Todavía no hay cursos.{% else %}No tenés cursos asignados — pedile a la coordinación que te asigne.{% endif %}</td></tr>
+      <tr><td colspan="7" class="muted">{% if user.role == 'admin' %}Todavía no hay cursadas. Creá la primera con «Nueva edición».{% else %}No tenés cursadas asignadas — pedile a la coordinación que te asigne.{% endif %}</td></tr>
     {% endfor %}
     </tbody>
   </table>

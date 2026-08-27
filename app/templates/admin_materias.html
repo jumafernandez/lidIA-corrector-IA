@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Materias{% endblock %}
+{% block content %}
+<p class="crumbs"><a href="{{ base }}/admin/cursos">← Cursos</a></p>
+<div class="row-between head">
+  <h1>Materias</h1>
+  <a class="btn small primary" href="{{ base }}/admin/cursos/nuevo">Nueva edición</a>
+</div>
+<p class="muted small guia">La materia es el nombre estable, sin año ni cuatrimestre. Renombrarla acá la cambia
+en todas sus ediciones, también en las cerradas.</p>
+
+{% for r in materias %}
+<section class="card">
+  <form method="post" action="{{ base }}/admin/materias/{{ r.m.id }}">
+    <div class="ajustes">
+      <label>Nombre
+        <input name="name" value="{{ r.m.name }}" required>
+      </label>
+      <label style="font-weight: 400; margin-top: 26px">
+        <input type="checkbox" name="active" value="1" {{ 'checked' if r.m.active }} style="width: auto; margin-right: 8px">
+        Se ofrece para ediciones nuevas
+      </label>
+      <div style="margin-top: 20px">
+        <button type="submit" class="btn small primary">Guardar</button>
+        {% if not r.ediciones %}
+        <button type="submit" name="action" value="eliminar" class="btn small ghost" formnovalidate
+                onclick="return confirm('¿Eliminar la materia «{{ r.m.name }}»?')">Eliminar</button>
+        {% endif %}
+      </div>
+    </div>
+  </form>
+  <p class="muted small">
+    {{ r.ediciones|length }} edición{{ 'es' if r.ediciones|length != 1 }} · {{ r.n_est }} estudiante{{ 's' if r.n_est != 1 }}:
+    {% for e in r.ediciones %}<a href="{{ base }}/admin/cursos/{{ e.id }}">{{ e.etiqueta }}</a>{{ ' · ' if not loop.last }}{% else %}todavía ninguna{% endfor %}
+  </p>
+</section>
+{% else %}
+<section class="card center-note">
+  <h2>Todavía no hay materias</h2>
+  <p class="muted">Se crean solas al crear la primera edición.</p>
+</section>
+{% endfor %}
+{% endblock %}

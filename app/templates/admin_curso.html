@@ -2,7 +2,10 @@
 {% block title %}{{ course.name }}{% endblock %}
 {% block content %}
 <p class="crumbs"><a href="{{ base }}/admin/cursos">← Cursos</a></p>
-<h1>{{ course.name }} <span class="pill pill-mini {{ 'pill-ok' if course.active else 'pill-warn' }}">{{ 'Activo' if course.active else 'Inactivo' }}</span></h1>
+<h1>{{ course.materia }} <span class="pill pill-edicion">{{ course.etiqueta }}</span>
+  <span class="pill pill-mini {{ 'pill-ok' if course.active else 'pill-warn' }}">{{ 'Cursada abierta' if course.active else 'Cursada cerrada' }}</span></h1>
+<p class="muted"><a href="{{ base }}/admin/cursos/{{ course.id }}/duplicar">⧉ Duplicar esta edición</a>
+  · otras ediciones de {{ course.materia }} en <a href="{{ base }}/admin/materias">Materias</a></p>
 
 <section class="card">
   <div class="row-between">
@@ -31,19 +34,21 @@
 
 <form method="post" action="{{ base }}/admin/cursos/{{ course.id }}">
 <section class="card">
-  <h2>Curso</h2>
+  <h2>Edición</h2>
   {% if user.role == 'admin' %}
   <div class="grid2">
-    <label>Nombre
-      <input name="name" value="{{ course.name }}" required>
+    <label>Etiqueta
+      <input name="etiqueta" value="{{ course.etiqueta }}" required>
+      <span class="ayuda">La materia se renombra desde <a href="{{ base }}/admin/materias">Materias</a>.</span>
     </label>
     <label style="font-weight: 400; margin-top: 34px">
       <input type="checkbox" name="active" value="1" {{ 'checked' if course.active }} style="width: auto; margin-right: 8px">
-      Curso activo (visible para sus estudiantes)
+      Cursada abierta (admite entregas nuevas)
     </label>
   </div>
+  <p class="muted small">Al cerrarla, el estudiantado sigue viendo sus entregas y devoluciones, pero no puede presentar nada nuevo.</p>
   {% endif %}
-  <p style="margin-bottom: 4px"><strong>Docentes del curso</strong></p>
+  <p style="margin-bottom: 4px"><strong>Docentes de esta edición</strong></p>
   {% if user.role == 'admin' %}
     {% for d in docentes %}
       <label style="font-weight: 400">
@@ -54,9 +59,9 @@
       <p class="muted">Todavía no hay docentes cargados — se crean en <a href="{{ base }}/admin/docentes">Docentes</a>.</p>
     {% endfor %}
     <div class="row-gap">
-      <button type="submit" class="btn primary">Guardar curso</button>
+      <button type="submit" class="btn primary">Guardar edición</button>
       <button type="submit" name="action" value="eliminar" class="btn ghost" formnovalidate
-              onclick="return confirm('¿Eliminar el curso «{{ course.name }}» con sus instancias e inscripciones?')">Eliminar curso</button>
+              onclick="return confirm('¿Eliminar la edición «{{ course.nombre }}» con sus instancias e inscripciones?')">Eliminar edición</button>
     </div>
   {% else %}
     <p class="muted">{% for d in asignados %}{{ d.full_name }}{{ ' · ' if not loop.last }}{% else %}Sin docentes asignados.{% endfor %}</p>

@@ -6,10 +6,14 @@
 <div class="hero">
   {{ lidia('greet') }}
   <div>
-    <h1>{{ course.name }}</h1>
+    <h1>{{ course.materia }} <span class="pill pill-edicion">{{ course.etiqueta }}</span></h1>
     <p class="muted">Hola, {{ user.full_name|nombre_pila }}. Estas son las instancias de evaluación del curso: entrá a una para presentar tu trabajo y recibir mi devolución.</p>
   </div>
 </div>
+
+{% if not course.active %}
+  <div class="flash warn">Esta cursada está cerrada. Podés consultar tus entregas y devoluciones, pero no presentar trabajos nuevos.</div>
+{% endif %}
 
 {% if not user.active %}
   <div class="flash warn">{{ cfg.banner_deshabilitado }}</div>

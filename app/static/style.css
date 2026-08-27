@@ -344,3 +344,17 @@ tbody tr:hover { background: var(--bg); }
 @media (prefers-reduced-motion: reduce) {
   .lidia * { animation: none !important; }
 }
+
+/* ediciones de curso */
+.pill-edicion { background: var(--primary-light); color: var(--primary); font-variant-numeric: tabular-nums; }
+h1 .pill-edicion, h2 .pill-edicion { font-size: .68em; vertical-align: middle; }
+.guia { margin: -6px 0 16px; }
+.ayuda { display: block; font-weight: 400; font-size: .8rem; color: var(--muted); margin-top: 4px; }
+tr.grupo th {
+  text-align: left; font-family: var(--font-title); font-size: .78rem; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .5px; color: var(--muted);
+  padding: 18px 10px 6px; border-bottom: 1px solid var(--line);
+}
+tbody tr.grupo:first-child th { padding-top: 2px; }
+.acciones { white-space: nowrap; display: flex; gap: 6px; }
+.card-archivada { opacity: .8; border-left: 3px solid var(--line); }
