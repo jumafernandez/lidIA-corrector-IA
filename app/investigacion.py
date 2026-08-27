@@ -23,7 +23,7 @@ CAMPOS = [
     "materia", "edicion", "edicion_inicio", "edicion_fin",
     "instancia", "tipo", "modalidad", "grupal", "integrantes",
     "intento", "nro_intento", "entregada_el", "dia_de_cursada",
-    "caracteres", "truncada",
+    "caracteres", "truncada", "propuesta_adjunta",
     "modelo", "tokens_entrada", "tokens_salida", "latencia_ms", "corte",
     "estado", "caracteres_ia", "caracteres_final", "reescritura_docente",
     "corregida_el", "horas_hasta_correccion", "nota",
@@ -80,7 +80,7 @@ def _dia_de_cursada(inicio, entregada):
 
 CONSULTA = """
 SELECT s.*, u.id AS uid, u.consent,
-       a.name AS instancia, a.tipo, a.max_integrantes,
+       a.name AS instancia, a.tipo, a.max_integrantes, a.pide_propuesta,
        c.name AS materia, ed.etiqueta AS edicion, ed.fecha_inicio, ed.fecha_fin,
        (SELECT COUNT(*) FROM grupo_miembros gm WHERE gm.grupo_id = s.grupo_id) AS integrantes
   FROM submissions s
@@ -122,6 +122,8 @@ def filas(db):
             "dia_de_cursada": _dia_de_cursada(r["fecha_inicio"], r["created_at"]),
             "caracteres": r["text_chars"],
             "truncada": r["truncated"],
+            # solo tiene sentido donde la instancia la pide: vacío en el resto
+            "propuesta_adjunta": ("" if not r["pide_propuesta"] else (0 if r["sin_propuesta"] else 1)),
             "modelo": r["model_used"] or "",
             "tokens_entrada": r["tokens_in"] if r["tokens_in"] is not None else "",
             "tokens_salida": r["tokens_out"] if r["tokens_out"] is not None else "",

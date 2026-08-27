@@ -238,6 +238,23 @@ def init_db():
             db.execute("ALTER TABLE course_editions ADD COLUMN fecha_inicio TEXT DEFAULT ''")
             db.execute("ALTER TABLE course_editions ADD COLUMN fecha_fin TEXT DEFAULT ''")
         cols = {r["name"] for r in db.execute("PRAGMA table_info(users)")}
+        cols = {r["name"] for r in db.execute("PRAGMA table_info(assignments)")}
+        if "pide_propuesta" not in cols:
+            # 006 — Instancias que se corrigen contra un alcance acordado previamente
+            # (típicamente un trabajo final contra su propuesta aprobada). El documento
+            # lo sube el estudiante junto con el trabajo; si no lo sube, se corrige igual
+            # y queda marcado.
+            db.execute("ALTER TABLE assignments ADD COLUMN pide_propuesta INTEGER NOT NULL DEFAULT 0")
+            db.execute("ALTER TABLE submissions ADD COLUMN propuesta_text TEXT DEFAULT ''")
+            db.execute("ALTER TABLE submissions ADD COLUMN sin_propuesta INTEGER NOT NULL DEFAULT 0")
+
+        cols = {r["name"] for r in db.execute("PRAGMA table_info(assignments)")}
+        if "requiere_revision" not in cols:
+            # 007 — Una instancia puede ser solo formativa: N intentos de práctica y nada
+            # que firmar. Con revisión (lo normal) son N + 1: las prácticas más la entrega
+            # final que revisa y firma una persona.
+            db.execute("ALTER TABLE assignments ADD COLUMN requiere_revision INTEGER NOT NULL DEFAULT 1")
+
         cols = {r["name"] for r in db.execute("PRAGMA table_info(course_editions)")}
         if "programa" not in cols:
             # 005 — El programa es de la CURSADA, no de la materia: cambia entre ediciones
@@ -377,6 +394,7 @@ def assignment_cfg(db, edicion, assignment) -> dict:
         "curso": edicion["materia"],
         "programa": (edicion["programa"] or "") if "programa" in edicion.keys() else "",
         "instancia": assignment["name"],
+        "pide_propuesta": bool(assignment["pide_propuesta"]) if "pide_propuesta" in assignment.keys() else False,
         "tipo": assignment["tipo"],
         "consigna": assignment["consigna"],
         "rubrica": assignment["rubrica"],

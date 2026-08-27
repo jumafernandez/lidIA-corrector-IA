@@ -466,6 +466,7 @@ async def entregar(
     texto: str = Form(""),
     origen: str = Form(""),
     fotos_n: int = Form(0),
+    propuesta: UploadFile | None = File(None),
 ):
     user, resp = _require(request, "student")
     if resp:
@@ -483,6 +484,8 @@ async def entregar(
                 or not is_enrolled(db, user["id"], course["id"])):
             return redirect("/panel", err="Esa instancia de evaluación no está disponible.")
         cfg = assignment_cfg(db, course, assignment)
+        if kind == "final" and not assignment["requiere_revision"]:
+            return redirect(back, err="Esta instancia es solo de práctica: no tiene entrega final.")
         if kind == "practica" and assignment["tipo"] == "choice":
             return redirect(back, err="Esta evaluación tiene una única oportunidad de entrega.")
         if kind == "practica" and practicas_usadas(db, user["id"], assignment_id) >= assignment["max_practicas"]:
@@ -510,6 +513,17 @@ async def entregar(
     except ExtractionError as exc:
         return redirect(back, err=str(exc))
 
+    # Alcance acordado: la propuesta ya aprobada, que el estudiante sube junto con el
+    # trabajo. Si la instancia la pide y no viene, se corrige igual y queda marcado.
+    propuesta_text = ""
+    if assignment["pide_propuesta"] and propuesta and propuesta.filename:
+        try:
+            propuesta_text, _ = extract_text(propuesta.filename, await propuesta.read())
+        except ExtractionError as exc:
+            return redirect(back, err=f"No se pudo leer la propuesta adjunta: {exc}")
+    sin_propuesta = bool(assignment["pide_propuesta"] and not propuesta_text.strip())
+    cfg["propuesta"] = propuesta_text
+
     tele = {}
     try:
         feedback, model, tele = generate_feedback(
@@ -529,13 +543,14 @@ async def entregar(
         cur = db.execute(
             "INSERT INTO submissions (user_id, assignment_id, kind, status, original_filename, work_text,"
             " text_chars, truncated, ai_feedback_md, model_used, error, created_at,"
-            " grupo_id, cfg_snapshot, tokens_in, tokens_out, latencia_ms, finish_reason)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " grupo_id, cfg_snapshot, tokens_in, tokens_out, latencia_ms, finish_reason,"
+            " propuesta_text, sin_propuesta)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (user["id"], assignment_id, kind, status, filename, work_text, len(work_text), int(truncated),
              feedback, model, error, utcnow(),
              grupo["id"] if grupo else None, json.dumps(cfg, ensure_ascii=False),
              tele.get("tokens_in"), tele.get("tokens_out"), tele.get("latencia_ms"),
-             tele.get("finish_reason")),
+             tele.get("finish_reason"), propuesta_text, int(sin_propuesta)),
         )
         sid = cur.lastrowid
     if kind == "final":
@@ -577,6 +592,8 @@ async def entregar_fotos(
             return redirect("/panel", err="Esa instancia de evaluación no está disponible.")
         if assignment["tipo"] not in ("escrito", "choice"):
             return redirect(back, err="La entrega por fotos es para exámenes en papel.")
+        if kind == "final" and not assignment["requiere_revision"]:
+            return redirect(back, err="Esta instancia es solo de práctica: no tiene entrega final.")
         if kind == "practica" and assignment["tipo"] == "choice":
             return redirect(back, err="Esta evaluación tiene una única oportunidad de entrega.")
         if kind == "practica" and practicas_usadas(db, user["id"], assignment_id) >= assignment["max_practicas"]:
@@ -1533,9 +1550,13 @@ async def admin_instancia_post(request: Request, aid: int):
                 )
         db.execute(
             "UPDATE assignments SET name = ?, active = ?, tipo = ?, consigna = ?, rubrica = ?, respuestas = ?,"
-            " prompt_extra = ?, max_practicas = ?, max_preguntas = ?, max_integrantes = ? WHERE id = ?",
+            " prompt_extra = ?, max_practicas = ?, max_preguntas = ?, max_integrantes = ?,"
+            " pide_propuesta = ?, requiere_revision = ? WHERE id = ?",
             (name, active, tipo, consigna, rubrica, respuestas,
-             (form.get("prompt_extra") or "").strip(), mp, mq, mi, aid),
+             (form.get("prompt_extra") or "").strip(), mp, mq, mi,
+             1 if (tipo == "abierto" and form.get("pide_propuesta") == "1") else 0,
+             # el multiple choice se corrige como final: siempre pasa por una persona
+             1 if (tipo == "choice" or form.get("requiere_revision") == "1") else 0, aid),
         )
     msg = "Instancia guardada."
     if extraidos:

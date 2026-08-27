@@ -161,6 +161,22 @@ def _system_prompt(cfg: dict, profile: str, kind: str) -> str:
         )
     if cfg.get("rubrica", "").strip():
         parts.append("RÚBRICA (criterios de evaluación):\n" + cfg["rubrica"].strip())
+    if cfg.get("propuesta", "").strip():
+        parts.append(
+            "ALCANCE ACORDADO — propuesta que el estudiante presentó y que el equipo docente aprobó "
+            "antes de este trabajo:\n"
+            + _recortar(cfg["propuesta"].strip(), 8000)
+            + "\n\nCorregí la coherencia entre esto y lo entregado. Los desvíos no son un error en sí "
+            "mismos: lo que se evalúa es si están explicados y fundamentados. Si el trabajo hace algo "
+            "distinto de lo propuesto sin decirlo, señalalo."
+        )
+    elif cfg.get("pide_propuesta"):
+        parts.append(
+            "ADVERTENCIA: esta instancia se corrige contra la propuesta aprobada del estudiante, pero "
+            "el estudiante no la adjuntó. Corregí todo lo demás con normalidad y decí explícitamente, "
+            "en una línea, que la coherencia con la propuesta no se pudo evaluar porque no fue "
+            "adjuntada. No inventes qué decía la propuesta ni supongas su contenido."
+        )
     if tipo in ("escrito", "choice"):
         if cfg.get("items"):
             parts.append(

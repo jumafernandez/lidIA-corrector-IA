@@ -371,3 +371,10 @@ tbody tr.grupo:first-child th { padding-top: 2px; }
 }
 .cifra strong { display: block; font-size: 1.5rem; line-height: 1.2; color: var(--primary); font-family: var(--font-title); }
 .cifra span { display: block; font-size: .78rem; color: var(--muted); margin-top: 2px; }
+
+/* texto crudo de un adjunto (propuesta, transcripción) */
+.crudo {
+  white-space: pre-wrap; word-break: break-word; max-height: 340px; overflow-y: auto;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
+  padding: 12px 14px; font-size: .85rem; line-height: 1.5;
+}

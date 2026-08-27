@@ -106,12 +106,21 @@
   {% if user.active and restantes > 0 %}
   <form method="post" action="{{ base }}/entregar" enctype="multipart/form-data"
         data-confirm="Esto consume 1 de tus {{ restantes }} devoluciones de práctica restantes. ¿Presentás esta versión?"
-        data-lidia="Lidia está leyendo tu trabajo">
+        data-lidia="Lidia está leyendo tu trabajo"
+        {% if assignment.pide_propuesta %}data-avisar-si-falta="propuesta"
+        data-aviso="Vas a entregar sin adjuntar tu propuesta aprobada. Lidia va a corregir todo lo demás, pero no va a poder evaluar si el trabajo es coherente con lo que propusiste, y la entrega queda marcada como entregada sin propuesta. ¿Seguís igual?"{% endif %}>
     <input type="hidden" name="kind" value="practica">
     <input type="hidden" name="assignment_id" value="{{ assignment.id }}">
     <label>Archivo (PDF, DOCX, TXT o MD)
       <input type="file" name="archivo" accept=".pdf,.docx,.txt,.md">
     </label>
+    {% if assignment.pide_propuesta %}
+    <label>Tu propuesta aprobada (PDF, DOCX, TXT o MD)
+      <input type="file" name="propuesta" accept=".pdf,.docx,.txt,.md">
+      <span class="ayuda">Es la propuesta que ya te aprobó el equipo docente. Lidia la usa para ver si el
+      trabajo hace lo que prometiste, y si se corrió del alcance, si lo explicás.</span>
+    </label>
+    {% endif %}
     <details class="alt">
       <summary>…o pegá el texto de tu trabajo</summary>
       <textarea name="texto" rows="8" placeholder="Pegá acá el contenido completo de tu trabajo"></textarea>
@@ -138,6 +147,14 @@
 </section>
 {% endif %}
 
+{% if not assignment.requiere_revision %}
+<section class="card">
+  <h2>Sin entrega final</h2>
+  <p class="muted">Esta instancia es de práctica: trabajás con las devoluciones de Lidia y no hay nada
+  que entregar para que el equipo docente firme. Lo que hagas con este trabajo después te lo indica tu
+  docente.</p>
+</section>
+{% else %}
 <section class="card">
   <div class="row-between">
     <h2>{{ 'Tu entrega' if assignment.tipo == 'choice' else 'Entrega final' }}</h2>
@@ -157,12 +174,21 @@
     {% endif %}
     <form method="post" action="{{ base }}/entregar" enctype="multipart/form-data"
           data-confirm="{{ 'Vas a registrar tu ÚNICA entrega de esta evaluación, que pasa a corrección del equipo docente. ¿Confirmás?' if assignment.tipo == 'choice' else 'Vas a registrar tu ENTREGA FINAL, que pasa a revisión del equipo docente. ¿Confirmás?' }}"
-          data-lidia="Lidia está registrando tu entrega">
+          data-lidia="Lidia está registrando tu entrega"
+          {% if assignment.pide_propuesta %}data-avisar-si-falta="propuesta"
+          data-aviso="Vas a entregar sin adjuntar tu propuesta aprobada. Lidia va a corregir todo lo demás, pero no va a poder evaluar si el trabajo es coherente con lo que propusiste, y la entrega queda marcada como entregada sin propuesta. ¿Seguís igual?"{% endif %}>
       <input type="hidden" name="kind" value="final">
       <input type="hidden" name="assignment_id" value="{{ assignment.id }}">
       <label>Archivo (PDF, DOCX, TXT o MD)
         <input type="file" name="archivo" accept=".pdf,.docx,.txt,.md">
       </label>
+      {% if assignment.pide_propuesta %}
+      <label>Tu propuesta aprobada (PDF, DOCX, TXT o MD)
+        <input type="file" name="propuesta" accept=".pdf,.docx,.txt,.md">
+        <span class="ayuda">Es la propuesta que ya te aprobó el equipo docente. Lidia la usa para ver si el
+        trabajo hace lo que prometiste, y si se corrió del alcance, si lo explicás.</span>
+      </label>
+      {% endif %}
       <details class="alt">
         <summary>…o pegá el texto de tu trabajo</summary>
         <textarea name="texto" rows="8" placeholder="Pegá acá el contenido completo de tu trabajo"></textarea>
@@ -187,6 +213,7 @@
     <p class="muted">La entrega final no está disponible en este momento.</p>
   {% endif %}
 </section>
+{% endif %}
 
 {% if entregas %}
 <section class="card">

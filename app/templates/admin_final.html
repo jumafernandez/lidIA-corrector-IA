@@ -3,6 +3,15 @@
 {% block content %}
 <p class="crumbs"><a href="{{ base }}/admin/entregas">← Entregas</a></p>
 <h1>Entrega final de {{ owner.full_name }}</h1>
+{% if sub.sin_propuesta %}
+<div class="flash warn">Entregada <strong>sin adjuntar la propuesta aprobada</strong>. Lidia lo sabía
+y no evaluó la coherencia con lo propuesto: ese criterio lo tenés que mirar vos.</div>
+{% elif sub.propuesta_text %}
+<details class="alt">
+  <summary>Propuesta aprobada que adjuntó ({{ sub.propuesta_text|length }} caracteres)</summary>
+  <pre class="crudo">{{ sub.propuesta_text }}</pre>
+</details>
+{% endif %}
 <p class="muted">{{ course.name }} · {{ assignment.name }} · {{ sub.created_at|fecha }} hs · {{ sub.original_filename or 'texto pegado' }} · {{ sub.text_chars }} caracteres
   {% if owner.email %} · al aprobar se notifica a {{ owner.email }}{% if not smtp_ok %} <em>(SMTP sin configurar: quedará solo en la app)</em>{% endif %}{% endif %}</p>
 

@@ -107,6 +107,7 @@
       {% if assignment.tipo != 'choice' %}
       <label>Devoluciones de práctica (1–10)
         <input name="max_practicas" value="{{ assignment.max_practicas }}">
+        <span class="ayuda" id="ayuda-intentos"></span>
       </label>
       <label>Preguntas por devolución (0–10)
         <input name="max_preguntas" value="{{ assignment.max_preguntas }}">
@@ -114,6 +115,26 @@
       <label>Integrantes por grupo (1–8)
         <input name="max_integrantes" value="{{ assignment.max_integrantes }}">
         <span class="ayuda">1 = entrega individual. Con 2 o más, el estudiantado arma sus grupos y el cupo pasa a ser del grupo.</span>
+      </label>
+      {% endif %}
+      {% if assignment.tipo != 'choice' %}
+      <label style="font-weight: 400">
+        <input type="checkbox" name="requiere_revision" value="1" id="chk-revision"
+               {{ 'checked' if assignment.requiere_revision }} style="width: auto; margin-right: 8px">
+        Requiere revisión humana final
+        <span class="ayuda" style="margin-left: 26px">Marcado, la instancia tiene una entrega final que
+        una persona revisa, firma y califica: es un intento más, además de las prácticas. Sin marcar, la
+        instancia es solo formativa —el estudiantado practica con Lidia y nadie firma nada—, útil cuando
+        la validación la hacés por fuera del sistema.</span>
+      </label>
+      {% endif %}
+      {% if assignment.tipo == 'abierto' %}
+      <label style="font-weight: 400">
+        <input type="checkbox" name="pide_propuesta" value="1" {{ 'checked' if assignment.pide_propuesta }} style="width: auto; margin-right: 8px">
+        Se corrige contra una propuesta aprobada
+        <span class="ayuda" style="margin-left: 26px">El estudiantado adjunta su propuesta junto con el trabajo, y Lidia
+        evalúa la coherencia entre lo que propuso y lo que entregó. Si no la adjunta, se le avisa antes de entregar,
+        la corrección se hace igual y la entrega queda marcada.</span>
       </label>
       {% endif %}
     </div>
@@ -217,5 +238,33 @@ if (lista) {
 
   refrescar();
 }
+
+// La revisión humana es la promesa del sistema: quitarla no puede ser un clic distraído.
+const chkRevision = document.getElementById('chk-revision');
+const inputPracticas = document.querySelector('input[name="max_practicas"]');
+const ayudaIntentos = document.getElementById('ayuda-intentos');
+
+function refrescarIntentos() {
+  if (!ayudaIntentos || !inputPracticas) return;
+  const n = parseInt(inputPracticas.value, 10);
+  if (!Number.isFinite(n)) { ayudaIntentos.textContent = ''; return; }
+  ayudaIntentos.textContent = (chkRevision && chkRevision.checked)
+    ? `${n} de práctica + 1 entrega final = ${n + 1} intentos en total.`
+    : `${n} intentos en total: esta instancia no tiene entrega final.`;
+}
+
+if (chkRevision) {
+  chkRevision.addEventListener('change', () => {
+    if (!chkRevision.checked && !confirm(
+        'Sin revisión humana, esta instancia no tiene entrega final: nadie firma ni califica, y la ' +
+        'devolución de Lidia es lo último que ve el estudiante.\n\n' +
+        'Tiene sentido cuando la validación la hacés por fuera del sistema. ¿Es lo que querés?')) {
+      chkRevision.checked = true;
+    }
+    refrescarIntentos();
+  });
+}
+if (inputPracticas) inputPracticas.addEventListener('input', refrescarIntentos);
+refrescarIntentos();
 </script>
 {% endblock %}

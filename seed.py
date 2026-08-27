@@ -116,6 +116,7 @@ INSTANCIAS_DEMO = {
             nombre="Propuesta de Trabajo Final",
             tipo="abierto",
             max_integrantes=2,
+            requiere_revision=0,
             consigna=(
                 "Antes de empezar el trabajo final hay que acordar de qué se trata. Esta entrega es "
                 "esa propuesta: un documento breve (dos o tres páginas) que delimite el caso de "
@@ -158,6 +159,7 @@ INSTANCIAS_DEMO = {
             nombre="Trabajo Final Integrador",
             tipo="abierto",
             max_integrantes=2,
+            pide_propuesta=1,
             consigna=(
                 "El trabajo final desarrolla el caso de estudio aprobado en la propuesta: diseño, "
                 "implementación y evaluación de un modelo de inteligencia artificial sobre un conjunto "
@@ -338,9 +340,11 @@ def crear_demo(db):
         for inst in instancias:
             aid = db.execute(
                 "INSERT INTO assignments (edition_id, name, active, tipo, consigna, rubrica,"
-                " max_integrantes, created_at) VALUES (?, ?, 1, ?, ?, ?, ?, ?)",
+                " max_integrantes, pide_propuesta, requiere_revision, created_at)"
+                " VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?)",
                 (ediciones[clave], inst["nombre"], inst["tipo"], inst["consigna"], inst["rubrica"],
-                 inst.get("max_integrantes", 1), utcnow()),
+                 inst.get("max_integrantes", 1), inst.get("pide_propuesta", 0),
+                 inst.get("requiere_revision", 1), utcnow()),
             ).lastrowid
             extra = ""
             if inst["tipo"] == "escrito":
@@ -351,8 +355,15 @@ def crear_demo(db):
                         (aid, orden, enunciado, respuesta, puntaje),
                     )
                 extra = f", {len(PREGUNTAS_DL)} preguntas · {sum(p for _, _, p in PREGUNTAS_DL)} puntos"
-            elif inst.get("max_integrantes", 1) > 1:
-                extra = f", grupos de hasta {inst['max_integrantes']}"
+            else:
+                notas = []
+                if inst.get("max_integrantes", 1) > 1:
+                    notas.append(f"grupos de hasta {inst['max_integrantes']}")
+                if inst.get("pide_propuesta"):
+                    notas.append("se corrige contra la propuesta")
+                if not inst.get("requiere_revision", 1):
+                    notas.append("solo práctica, sin revisión humana")
+                extra = (", " + ", ".join(notas)) if notas else ""
             print(f"  · {nombres[clave]} → {inst['nombre']} ({inst['tipo']}{extra})")
 
     print("\nEstudiantes (inscriptos en las cuatro materias):")

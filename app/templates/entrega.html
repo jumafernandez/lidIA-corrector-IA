@@ -12,6 +12,11 @@
 </div>
 <p class="muted">{{ owner.full_name }} · {{ course.name }} · {{ assignment.name }} · {{ sub.created_at|fecha }} hs · {{ sub.original_filename or 'texto pegado' }} · {{ sub.text_chars }} caracteres{% if sub.truncated %} (texto truncado para el análisis){% endif %}</p>
 
+{% if sub.sin_propuesta %}
+<div class="flash warn">Esta entrega se hizo <strong>sin adjuntar la propuesta aprobada</strong>, así que
+la devolución no evalúa si el trabajo es coherente con lo que se propuso.</div>
+{% endif %}
+
 {% if user.role in ('admin', 'docente') and sub.kind == 'final' and sub.status == 'pendiente' %}
   <p><a class="btn primary" href="{{ base }}/admin/final/{{ sub.id }}">Revisar y aprobar esta entrega</a></p>
 {% endif %}
