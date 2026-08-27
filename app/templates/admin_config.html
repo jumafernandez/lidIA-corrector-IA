@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Configuración{% endblock %}
+{% block content %}
+<h1>Configuración</h1>
+
+<div class="stats">
+  <div class="stat"><b style="font-size:1rem">{{ modelo.model }}</b>
+    <span>{{ 'modelo conectado' if modelo.configured else 'SIN CONECTAR — modo demo' }} · {{ modelo.base_url }}</span></div>
+  <div class="stat"><b style="font-size:1rem">{{ 'Sí' if smtp_ok else 'No' }}</b>
+    <span>correo saliente (SMTP) configurado</span></div>
+</div>
+<p class="muted small">El proveedor del modelo y el SMTP se configuran por variables de entorno (ver README / .env).
+La consigna, la rúbrica, las indicaciones para Lidia y los cupos se editan en la ficha de cada <a href="{{ base }}/admin/cursos">curso</a>.</p>
+
+<section class="card">
+  <h2>Ajustes globales</h2>
+  <form method="post" action="{{ base }}/admin/config">
+    <label>Aviso para estudiantes deshabilitados
+      <textarea name="banner_deshabilitado" rows="3">{{ cfg.banner_deshabilitado }}</textarea>
+    </label>
+    <label style="font-weight: 400">
+      <input type="checkbox" name="enviar_nombre" value="1" {{ 'checked' if cfg.enviar_nombre == '1' }} style="width: auto; margin-right: 8px">
+      Enviar el nombre de pila del estudiante al modelo (personaliza la devolución; desactivalo para anonimizar por completo)
+    </label>
+    <button type="submit" class="btn primary">Guardar configuración</button>
+  </form>
+</section>
+{% endblock %}

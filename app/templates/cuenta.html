@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Tu cuenta{% endblock %}
+{% block content %}
+<h1>Tu cuenta</h1>
+<p class="muted">{{ user.full_name }} · usuario {{ user.login }} ·
+  {{ {'admin': 'coordinación', 'docente': 'docente', 'student': 'estudiante'}[user.role] }}</p>
+
+{% if user.initial_password %}
+<div class="flash warn">Todavía estás usando la contraseña inicial que te asignaron. Cambiala por una propia.</div>
+{% endif %}
+
+<section class="card" style="max-width: 480px">
+  <h2>Tu foto</h2>
+  <div class="row-gap" style="align-items: center">
+    {% if user.avatar %}
+      <img class="avatar avatar-grande" src="{{ base }}/avatar/{{ user.id }}" alt="Tu foto">
+    {% else %}
+      <span class="avatar avatar-inicial avatar-grande">{{ (user.full_name|nombre_pila)[:1]|upper }}</span>
+    {% endif %}
+    <div style="flex: 1">
+      <form method="post" action="{{ base }}/cuenta/foto" enctype="multipart/form-data">
+        <input type="file" name="foto" accept="image/jpeg,image/png,image/webp" required>
+        <button type="submit" class="btn small primary">Subir foto</button>
+      </form>
+      {% if user.avatar %}
+      <form method="post" action="{{ base }}/cuenta/foto/quitar">
+        <button type="submit" class="btn small ghost">Quitar foto</button>
+      </form>
+      {% endif %}
+      <p class="muted small">JPG, PNG o WEBP, hasta 1 MB. Se ve en la barra superior.</p>
+    </div>
+  </div>
+</section>
+
+<section class="card" style="max-width: 480px">
+  <h2>Cambiar contraseña</h2>
+  <form method="post" action="{{ base }}/cuenta/clave">
+    <label>Contraseña actual
+      <input type="password" name="actual" required autocomplete="current-password">
+    </label>
+    <label>Contraseña nueva (mínimo 8 caracteres)
+      <input type="password" name="nueva" required minlength="8" autocomplete="new-password">
+    </label>
+    <label>Repetir la contraseña nueva
+      <input type="password" name="repetir" required minlength="8" autocomplete="new-password">
+    </label>
+    <button type="submit" class="btn primary">Cambiar contraseña</button>
+  </form>
+</section>
+{% endblock %}

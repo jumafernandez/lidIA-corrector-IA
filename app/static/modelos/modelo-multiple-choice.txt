@@ -1,0 +1,41 @@
+MODELO DE MULTIPLE CHOICE PARA LidIA
+====================================
+
+Armá tu documento (PDF, Word o texto) siguiendo esta estructura. La numeración
+consistente entre preguntas y clave es lo que le permite a Lidia corregir ítem
+por ítem sin confundirse. Recordá: el multiple choice tiene una única
+oportunidad de entrega.
+
+------------------------------------------------------------------
+LO QUE VA EN EL CAMPO «CONSIGNA» (esto sí lo ve el estudiante)
+------------------------------------------------------------------
+
+Marcá la opción correcta de cada pregunta. Respondé indicando número de
+pregunta y letra elegida, una por línea (ej.: 1-b).
+
+Pregunta 1: <enunciado>
+  a) <opción>
+  b) <opción>
+  c) <opción>
+  d) <opción>
+
+Pregunta 2: <enunciado>
+  a) <opción>
+  b) <opción>
+  c) <opción>
+  d) <opción>
+
+------------------------------------------------------------------
+LO QUE VA EN EL CAMPO «RESPUESTAS ESPERADAS / CLAVE» (material interno:
+el estudiante nunca lo ve; Lidia lo usa para la corrección con calificación)
+------------------------------------------------------------------
+
+1: b
+2: a
+3: d
+
+Opcional pero recomendado — una justificación breve por ítem, para que la
+corrección final explique cada respuesta:
+
+1: b — <por qué es la correcta / por qué las otras no>
+2: a — <...>

@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% from "_lidia.html" import lidia %}
+{% block title %}Mi espacio{% endblock %}
+{% block content %}
+<div class="hero">
+  {{ lidia('greet') }}
+  <div>
+    <h1>Hola, {{ user.full_name|nombre_pila }}</h1>
+    <p class="muted">Soy Lidia. Elegí el curso en el que querés trabajar.</p>
+  </div>
+</div>
+
+{% if not user.active %}
+  <div class="flash warn">{{ cfg.banner_deshabilitado }}</div>
+{% endif %}
+
+{% for it in items %}
+<section class="card">
+  <div class="row-between">
+    <h2><a href="{{ base }}/panel/{{ it.c.id }}">{{ it.c.name }}</a></h2>
+    <span class="pill pill-mini">{{ it.n_instancias }} instancia{{ 's' if it.n_instancias != 1 }} de evaluación</span>
+  </div>
+  <p class="muted"><a href="{{ base }}/panel/{{ it.c.id }}">Entrar →</a></p>
+</section>
+{% else %}
+<section class="card center-note">
+  <h2>Todavía no estás inscripto/a en ningún curso</h2>
+  <p class="muted">Escribile al staff de tu carrera para que te asignen a tu curso.</p>
+</section>
+{% endfor %}
+{% endblock %}

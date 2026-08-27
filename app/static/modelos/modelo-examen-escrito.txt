@@ -1,0 +1,32 @@
+MODELO DE EXAMEN ESCRITO PARA LidIA
+===================================
+
+Armá tu documento (PDF, Word o texto) siguiendo esta estructura. La numeración
+consistente entre preguntas y respuestas es lo que le permite a Lidia corregir
+punto por punto sin confundirse.
+
+------------------------------------------------------------------
+LO QUE VA EN EL CAMPO «CONSIGNA» (esto sí lo ve el estudiante)
+------------------------------------------------------------------
+
+Examen parcial de <curso>. Respondé las <N> preguntas de forma completa y
+justificada. <Condiciones: tiempo, materiales permitidos, modalidad.>
+
+Pregunta 1: <enunciado>
+Pregunta 2: <enunciado>
+Pregunta 3: <enunciado>
+
+------------------------------------------------------------------
+LO QUE VA EN EL CAMPO «RESPUESTAS ESPERADAS» (material interno:
+el estudiante nunca lo ve; Lidia solo lo revela en la corrección final)
+------------------------------------------------------------------
+
+Respuesta 1: <respuesta esperada. Incluí los puntos que no pueden faltar y,
+si aplica, qué alcanza para considerarla "parcialmente correcta">
+Respuesta 2: <respuesta esperada>
+Respuesta 3: <respuesta esperada>
+
+Sugerencias:
+- Una respuesta por pregunta, con el mismo número.
+- Si una pregunta admite más de una resolución válida, aclaralo en su respuesta.
+- Podés repetir el enunciado antes de cada respuesta: ayuda a la corrección.

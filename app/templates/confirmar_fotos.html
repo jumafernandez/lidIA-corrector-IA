@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% from "_lidia.html" import lidia %}
+{% block title %}Revisá la lectura · {{ assignment.name }}{% endblock %}
+{% block content %}
+<p class="crumbs"><a href="{{ base }}/panel/instancia/{{ assignment.id }}">← {{ assignment.name }}</a></p>
+<div class="hero">
+  {{ lidia('greet') }}
+  <div>
+    <h1>Esto es lo que leí</h1>
+    <p class="muted">{{ course.name }} · {{ assignment.name }} · {{ n_fotos }} foto{{ 's' if n_fotos != 1 }}.
+    Compará con tu hoja antes de confirmar: <strong>todavía no se registró nada</strong>.</p>
+  </div>
+</div>
+
+<section class="card">
+  <h2>Transcripción de tu examen</h2>
+  <pre class="worktext tall">{{ transcripcion }}</pre>
+  <p class="muted small">Si algo se leyó mal o dice [ilegible], volvé atrás y sacá las fotos de nuevo —
+  con buena luz, la hoja completa y sin dedos encima. La transcripción no se edita: lo que vale es lo
+  que está en el papel, y el equipo docente lo tiene para cotejar.</p>
+
+  <form method="post" action="{{ base }}/entregar"
+        data-confirm="{{ 'Vas a registrar tu ÚNICA entrega de esta evaluación con esta transcripción. ¿Confirmás?' if assignment.tipo == 'choice' or kind == 'final' else 'Esto consume 1 de tus devoluciones de práctica con esta transcripción. ¿Confirmás?' }}"
+        data-lidia="{{ 'Lidia está corrigiendo tu examen' if kind == 'final' or assignment.tipo == 'choice' else 'Lidia está leyendo tu examen' }}">
+    <input type="hidden" name="kind" value="{{ kind }}">
+    <input type="hidden" name="assignment_id" value="{{ assignment.id }}">
+    <input type="hidden" name="origen" value="foto">
+    <input type="hidden" name="fotos_n" value="{{ n_fotos }}">
+    <textarea name="texto" hidden>{{ transcripcion }}</textarea>
+    <div class="row-gap">
+      <button type="submit" class="btn {{ 'accent' if kind == 'final' else 'primary' }}">
+        {{ 'Confirmar y entregar' if kind == 'final' or assignment.tipo == 'choice' else 'Confirmar y pedir devolución' }}</button>
+      <a class="btn ghost" href="{{ base }}/panel/instancia/{{ assignment.id }}">Volver y sacar las fotos de nuevo</a>
+    </div>
+  </form>
+</section>
+{% endblock %}

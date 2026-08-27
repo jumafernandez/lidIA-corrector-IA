@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}{{ doc.full_name }}{% endblock %}
+{% block content %}
+<p class="crumbs"><a href="{{ base }}/admin/docentes">← Docentes</a></p>
+<h1>{{ doc.full_name }}
+  {% if doc.role == 'admin' %}<span class="pill pill-mini">Coordinación</span>{% endif %}
+  <span class="pill pill-mini {{ 'pill-ok' if doc.active else 'pill-warn' }}">{{ 'Habilitado' if doc.active else 'Deshabilitado' }}</span></h1>
+<p class="muted">Usuario {{ doc.login }} · alta {{ doc.created_at|fecha }}</p>
+
+{% if doc.initial_password %}
+<p class="clave-inicial">🔑 Contraseña inicial: <code>{{ doc.initial_password }}</code> —
+entregásela por un canal seguro. Deja de mostrarse cuando la cambie desde su cuenta.</p>
+{% endif %}
+
+<section class="card">
+  <h2>Ficha</h2>
+  <form method="post" action="{{ base }}/admin/docentes/{{ doc.id }}">
+    <input type="hidden" name="action" value="guardar">
+    <label>Apellido y nombre
+      <input name="full_name" value="{{ doc.full_name }}">
+    </label>
+    <label>Correo
+      <input name="email" value="{{ doc.email }}" type="text">
+    </label>
+    {% if cursos %}
+    <p style="margin-bottom: 4px"><strong>Cursos a cargo</strong></p>
+    {% for c in cursos %}
+      <label style="font-weight: 400">
+        <input type="checkbox" name="cursos" value="{{ c.id }}" {{ 'checked' if c.id in propios }} style="width: auto; margin-right: 8px">
+        {{ c.name }}
+      </label>
+    {% endfor %}
+    {% endif %}
+    <button type="submit" class="btn primary">Guardar</button>
+  </form>
+  <hr style="border: none; border-top: 1px solid var(--line); margin: 16px 0">
+  <div class="row-gap">
+    {% if doc.role != 'admin' %}
+    <form method="post" action="{{ base }}/admin/docentes/{{ doc.id }}" class="inline">
+      <input type="hidden" name="action" value="toggle">
+      <button type="submit" class="btn {{ 'ghost' if doc.active else 'primary' }}">{{ 'Deshabilitar' if doc.active else 'Habilitar' }}</button>
+    </form>
+    {% endif %}
+    <form method="post" action="{{ base }}/admin/docentes/{{ doc.id }}" class="inline" data-confirm="¿Generar una nueva contraseña para {{ doc.full_name }}?">
+      <input type="hidden" name="action" value="reset_password">
+      <button type="submit" class="btn ghost">Regenerar contraseña</button>
+    </form>
+    {% if doc.role != 'admin' %}
+    <form method="post" action="{{ base }}/admin/docentes/{{ doc.id }}" class="inline"
+          data-confirm="¿Eliminar a {{ doc.full_name }}? Se pierde su usuario y sus asignaciones a cursos.">
+      <input type="hidden" name="action" value="eliminar">
+      <button type="submit" class="btn ghost">Eliminar</button>
+    </form>
+    {% endif %}
+  </div>
+  <p class="muted small">{% if doc.role == 'admin' %}La coordinación no se puede deshabilitar desde acá.{% else %}Un docente deshabilitado no puede ingresar, pero conserva sus cursos asignados.{% endif %}</p>
+</section>
+{% endblock %}

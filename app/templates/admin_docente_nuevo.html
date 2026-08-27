@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Nuevo docente{% endblock %}
+{% block content %}
+<p class="crumbs"><a href="{{ base }}/admin/docentes">← Docentes</a></p>
+<h1>Nuevo docente</h1>
+
+<section class="card">
+  <form method="post" action="{{ base }}/admin/docentes/crear">
+    <div class="grid2">
+      <label>Usuario (para ingresar)
+        <input name="login" required placeholder="ej.: mgarcia" autofocus>
+      </label>
+      <label>Apellido y nombre
+        <input name="full_name" required placeholder="García, Marta">
+      </label>
+    </div>
+    <label>Correo
+      <input name="email" type="text" placeholder="opcional">
+    </label>
+    {% if cursos %}
+    <p style="margin-bottom: 4px"><strong>Cursos a cargo</strong></p>
+    {% for c in cursos %}
+      <label style="font-weight: 400">
+        <input type="checkbox" name="cursos" value="{{ c.id }}" style="width: auto; margin-right: 8px">
+        {{ c.name }}
+      </label>
+    {% endfor %}
+    {% endif %}
+    <button type="submit" class="btn primary">Crear docente</button>
+    <p class="muted small">Se genera una contraseña inicial y se muestra al crear. El docente ve y administra solo sus cursos.</p>
+  </form>
+</section>
+{% endblock %}

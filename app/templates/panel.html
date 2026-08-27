@@ -1,0 +1,179 @@
+{% extends "base.html" %}
+{% from "_lidia.html" import lidia %}
+{% block title %}{{ assignment.name }} · {{ course.name }}{% endblock %}
+{% block content %}
+<p class="crumbs"><a href="{{ base }}/panel/{{ course.id }}">← {{ course.name }}</a></p>
+<div class="hero">
+  {{ lidia('greet') }}
+  <div>
+    <h1>{{ assignment.name }}</h1>
+    <p class="muted">Hola, {{ user.full_name|nombre_pila }}. Cuando tengas una versión de tu trabajo que valga la pena presentar, dámela y te doy una devolución completa.</p>
+  </div>
+</div>
+
+{% if not user.active %}
+  <div class="flash warn">{{ cfg.banner_deshabilitado }}</div>
+{% endif %}
+
+{% if assignment.rubrica and not items %}
+<div class="grid2">
+  <section class="card">
+    <h2>Consigna</h2>
+    <div class="prose">{{ assignment.consigna|md|safe }}</div>
+  </section>
+  <section class="card">
+    <h2>Criterios de evaluación</h2>
+    <div class="prose">{{ assignment.rubrica|md|safe }}</div>
+  </section>
+</div>
+{% else %}
+{% if assignment.consigna %}
+<section class="card">
+  <h2>Consigna</h2>
+  <div class="prose">{{ assignment.consigna|md|safe }}</div>
+</section>
+{% endif %}
+{% if items %}
+<section class="card">
+  <div class="row-between">
+    <h2>Preguntas</h2>
+    <span class="pill pill-mini">{{ items|length }} pregunta{{ 's' if items|length != 1 }} · {{ puntaje_total|round(2)|int if puntaje_total == puntaje_total|round(0) else puntaje_total }} puntos</span>
+  </div>
+  <ol class="preguntas">
+    {% for it in items %}
+    <li>
+      <div class="prose">{{ it.enunciado|md|safe }}</div>
+      {% if it.opciones %}
+      <ol class="opciones" type="a">
+        {% for opcion in it.opciones.splitlines() %}{% if opcion.strip() %}<li>{{ opcion }}</li>{% endif %}{% endfor %}
+      </ol>
+      {% endif %}
+      <span class="muted small">{{ it.puntaje|round(2)|int if it.puntaje == it.puntaje|round(0) else it.puntaje }} punto{{ '' if it.puntaje == 1 else 's' }}</span>
+    </li>
+    {% endfor %}
+  </ol>
+</section>
+{% endif %}
+{% if assignment.rubrica %}
+<section class="card">
+  <h2>Criterios de evaluación</h2>
+  <div class="prose">{{ assignment.rubrica|md|safe }}</div>
+</section>
+{% endif %}
+{% endif %}
+
+{% if assignment.tipo != 'choice' %}
+<section class="card">
+  <div class="row-between">
+    <h2>Devoluciones de práctica</h2>
+    <span class="pill {{ 'pill-warn' if restantes == 0 else 'pill-ok' }}">Te quedan {{ restantes }} de {{ maxp }}</span>
+  </div>
+  <p class="muted">Cada devolución evalúa una <strong>entrega completa</strong> contra la rúbrica. Usalas como si presentaras de verdad:
+  una entrega inmadura también consume el intento. Sobre cada devolución podés hacer hasta {{ assignment.max_preguntas }} preguntas aclaratorias.</p>
+
+  {% if user.active and restantes > 0 %}
+  <form method="post" action="{{ base }}/entregar" enctype="multipart/form-data"
+        data-confirm="Esto consume 1 de tus {{ restantes }} devoluciones de práctica restantes. ¿Presentás esta versión?"
+        data-lidia="Lidia está leyendo tu trabajo">
+    <input type="hidden" name="kind" value="practica">
+    <input type="hidden" name="assignment_id" value="{{ assignment.id }}">
+    <label>Archivo (PDF, DOCX, TXT o MD)
+      <input type="file" name="archivo" accept=".pdf,.docx,.txt,.md">
+    </label>
+    <details class="alt">
+      <summary>…o pegá el texto de tu trabajo</summary>
+      <textarea name="texto" rows="8" placeholder="Pegá acá el contenido completo de tu trabajo"></textarea>
+    </details>
+    <button type="submit" class="btn primary">Pedir devolución</button>
+  </form>
+  {% if assignment.tipo == 'escrito' %}
+  <details class="alt">
+    <summary>📷 …o subí fotos de tu examen resuelto en papel</summary>
+    <form method="post" action="{{ base }}/entregar/fotos" enctype="multipart/form-data"
+          data-busy="1" data-lidia="Lidia está leyendo tu examen">
+      <input type="hidden" name="kind" value="practica">
+      <input type="hidden" name="assignment_id" value="{{ assignment.id }}">
+      <input type="file" name="fotos" accept="image/jpeg,image/png,image/webp" multiple required>
+      <p class="muted small">Hasta 6 fotos (JPG o PNG), en orden y con buena luz. Lidia las transcribe y te muestra
+      la lectura para que la revises: <strong>nada se entrega hasta que confirmes</strong> en el paso siguiente.</p>
+      <button type="submit" class="btn">Leer mi examen</button>
+    </form>
+  </details>
+  {% endif %}
+  {% elif user.active %}
+    <p class="muted">Usaste todas tus devoluciones de práctica. Queda la entrega final.</p>
+  {% endif %}
+</section>
+{% endif %}
+
+<section class="card">
+  <div class="row-between">
+    <h2>{{ 'Tu entrega' if assignment.tipo == 'choice' else 'Entrega final' }}</h2>
+    {% if final %}
+      <span class="pill {{ 'pill-ok' if final.status == 'aprobada' else 'pill-warn' }}">{{ 'Aprobada' if final.status == 'aprobada' else 'En revisión docente' }}</span>
+    {% endif %}
+  </div>
+  {% if final %}
+    <p>Tu entrega final del {{ final.created_at|fecha }} hs
+      {% if final.status == 'aprobada' %} ya tiene la devolución del equipo docente.{% else %} está siendo revisada por el equipo docente.{% endif %}
+      <a href="{{ base }}/entrega/{{ final.id }}">Ver detalle</a></p>
+  {% elif user.active %}
+    {% if assignment.tipo == 'choice' %}
+      <p class="muted">Tenés una <strong>única oportunidad de entrega</strong>. La corrección la revisa y la firma el equipo docente.</p>
+    {% else %}
+      <p class="muted">La entrega final no consume devoluciones de práctica. La revisa y la firma el equipo docente.</p>
+    {% endif %}
+    <form method="post" action="{{ base }}/entregar" enctype="multipart/form-data"
+          data-confirm="{{ 'Vas a registrar tu ÚNICA entrega de esta evaluación, que pasa a corrección del equipo docente. ¿Confirmás?' if assignment.tipo == 'choice' else 'Vas a registrar tu ENTREGA FINAL, que pasa a revisión del equipo docente. ¿Confirmás?' }}"
+          data-lidia="Lidia está registrando tu entrega">
+      <input type="hidden" name="kind" value="final">
+      <input type="hidden" name="assignment_id" value="{{ assignment.id }}">
+      <label>Archivo (PDF, DOCX, TXT o MD)
+        <input type="file" name="archivo" accept=".pdf,.docx,.txt,.md">
+      </label>
+      <details class="alt">
+        <summary>…o pegá el texto de tu trabajo</summary>
+        <textarea name="texto" rows="8" placeholder="Pegá acá el contenido completo de tu trabajo"></textarea>
+      </details>
+      <button type="submit" class="btn accent">{{ 'Entregar' if assignment.tipo == 'choice' else 'Marcar como entrega final' }}</button>
+    </form>
+    {% if assignment.tipo in ('escrito', 'choice') %}
+    <details class="alt">
+      <summary>📷 …o subí fotos de tu examen resuelto en papel</summary>
+      <form method="post" action="{{ base }}/entregar/fotos" enctype="multipart/form-data"
+            data-busy="1" data-lidia="Lidia está leyendo tu examen">
+        <input type="hidden" name="kind" value="final">
+        <input type="hidden" name="assignment_id" value="{{ assignment.id }}">
+        <input type="file" name="fotos" accept="image/jpeg,image/png,image/webp" multiple required>
+        <p class="muted small">Hasta 6 fotos (JPG o PNG), en orden y con buena luz. Lidia las transcribe y te muestra
+        la lectura para que la revises: <strong>nada se entrega hasta que confirmes</strong> en el paso siguiente.</p>
+        <button type="submit" class="btn">Leer mi examen</button>
+      </form>
+    </details>
+    {% endif %}
+  {% else %}
+    <p class="muted">La entrega final no está disponible en este momento.</p>
+  {% endif %}
+</section>
+
+{% if entregas %}
+<section class="card">
+  <h2>Historial</h2>
+  <table>
+    <thead><tr><th>Fecha</th><th>Tipo</th><th>Archivo</th><th>Estado</th><th></th></tr></thead>
+    <tbody>
+    {% for e in entregas %}
+      <tr>
+        <td>{{ e.created_at|fecha }}</td>
+        <td>{{ 'Entrega final' if e.kind == 'final' else 'Práctica' }}</td>
+        <td>{{ e.original_filename or 'texto pegado' }}</td>
+        <td><span class="pill pill-mini {{ 'pill-ok' if e.status in ('ok','aprobada') else 'pill-warn' }}">
+          {{ {'ok':'Con devolución','pendiente':'En revisión','aprobada':'Aprobada','reabierta':'Reabierta','error':'Error'}[e.status] }}</span></td>
+        <td><a href="{{ base }}/entrega/{{ e.id }}">Ver</a></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% from "_lidia.html" import lidia %}
+{% block title %}Ingresar{% endblock %}
+{% block bodyclass %}login-bg{% endblock %}
+{% block topbar %}{% endblock %}
+{% block content %}
+<div class="login-wrap">
+  {{ lidia('greet') }}
+  <div class="login-brand">Lid<b>IA</b></div>
+  <p class="login-tag">Te acompaño con tus entregas y tu aprendizaje a lo largo de la Carrera.</p>
+  <div class="login-card2">
+    <form method="post" action="{{ base }}/login">
+      <label>Usuario
+        <input name="login_id" required autofocus autocomplete="username" placeholder="tu DNI si sos estudiante">
+      </label>
+      <label>Contraseña
+        <input type="password" name="password" required autocomplete="current-password">
+      </label>
+      <button type="submit" class="btn primary wide">Ingresar</button>
+    </form>
+  </div>
+  <p class="muted small login-help">¿No tenés tus credenciales? Escribile al staff de tu carrera.</p>
+</div>
+<script>
+// Lidia cierra los ojos mientras escribís la contraseña
+const _lid = document.querySelector('.login-wrap .lidia');
+const _pass = document.querySelector('.login-card2 input[type="password"]');
+_pass.addEventListener('focus', () => _lid.classList.add('shy'));
+_pass.addEventListener('blur', () => _lid.classList.remove('shy'));
+</script>
+{% endblock %}

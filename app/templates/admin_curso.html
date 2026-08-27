@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}{{ course.name }}{% endblock %}
+{% block content %}
+<p class="crumbs"><a href="{{ base }}/admin/cursos">← Cursos</a></p>
+<h1>{{ course.name }} <span class="pill pill-mini {{ 'pill-ok' if course.active else 'pill-warn' }}">{{ 'Activo' if course.active else 'Inactivo' }}</span></h1>
+
+<section class="card">
+  <div class="row-between">
+    <h2>Instancias de evaluación</h2>
+    <a class="btn small primary" href="{{ base }}/admin/cursos/{{ course.id }}/instancias/nueva">Nueva instancia</a>
+  </div>
+  <table>
+    <thead><tr><th>Instancia</th><th>Tipo</th><th>Entregas</th><th>Finales por revisar</th><th>Estado</th><th></th></tr></thead>
+    <tbody>
+    {% for a in instancias %}
+      <tr>
+        <td><a href="{{ base }}/admin/instancias/{{ a.id }}">{{ a.name }}</a></td>
+        <td class="muted small">{{ {'abierto': 'Trabajo abierto', 'escrito': 'Examen escrito', 'choice': 'Multiple choice'}[a.tipo] }}</td>
+        <td>{{ a.n_entregas }}</td>
+        <td>{% if a.pendientes %}<span class="pill pill-mini pill-warn">{{ a.pendientes }}</span>{% else %}—{% endif %}</td>
+        <td><span class="pill pill-mini {{ 'pill-ok' if a.active else 'pill-warn' }}">{{ 'Activa' if a.active else 'Borrador' }}</span></td>
+        <td><a class="btn small" href="{{ base }}/admin/instancias/{{ a.id }}">Ficha</a></td>
+      </tr>
+    {% else %}
+      <tr><td colspan="6" class="muted">Todavía no hay instancias: creá la primera (ej.: TP1, Parcial, Trabajo Final).</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <p class="muted small">Cada instancia tiene su tipo, su consigna, su material de corrección y sus cupos. Arranca como borrador: se activa desde su ficha cuando está lista.</p>
+</section>
+
+<form method="post" action="{{ base }}/admin/cursos/{{ course.id }}">
+<section class="card">
+  <h2>Curso</h2>
+  {% if user.role == 'admin' %}
+  <div class="grid2">
+    <label>Nombre
+      <input name="name" value="{{ course.name }}" required>
+    </label>
+    <label style="font-weight: 400; margin-top: 34px">
+      <input type="checkbox" name="active" value="1" {{ 'checked' if course.active }} style="width: auto; margin-right: 8px">
+      Curso activo (visible para sus estudiantes)
+    </label>
+  </div>
+  {% endif %}
+  <p style="margin-bottom: 4px"><strong>Docentes del curso</strong></p>
+  {% if user.role == 'admin' %}
+    {% for d in docentes %}
+      <label style="font-weight: 400">
+        <input type="checkbox" name="docentes" value="{{ d.id }}" {{ 'checked' if d.id in asignados_ids }} style="width: auto; margin-right: 8px">
+        {{ d.full_name }} <span class="muted small">({{ d.login }}{{ ' · coordinación' if d.role == 'admin' }}{{ ', deshabilitado' if not d.active }})</span>
+      </label>
+    {% else %}
+      <p class="muted">Todavía no hay docentes cargados — se crean en <a href="{{ base }}/admin/docentes">Docentes</a>.</p>
+    {% endfor %}
+    <div class="row-gap">
+      <button type="submit" class="btn primary">Guardar curso</button>
+      <button type="submit" name="action" value="eliminar" class="btn ghost" formnovalidate
+              onclick="return confirm('¿Eliminar el curso «{{ course.name }}» con sus instancias e inscripciones?')">Eliminar curso</button>
+    </div>
+  {% else %}
+    <p class="muted">{% for d in asignados %}{{ d.full_name }}{{ ' · ' if not loop.last }}{% else %}Sin docentes asignados.{% endfor %}</p>
+  {% endif %}
+</section>
+</form>
+
+<section class="card">
+  <div class="row-between">
+    <h2>Estudiantes inscriptos ({{ inscriptos|length }})</h2>
+    <span>
+      <a class="btn small primary" href="{{ base }}/admin/estudiantes/nuevo?curso={{ course.id }}">Nuevo estudiante</a>
+      <a class="btn small" href="{{ base }}/admin/estudiantes/importar?curso={{ course.id }}">Importar listado</a>
+      <a class="btn small" href="{{ base }}/admin/credenciales.csv?curso={{ course.id }}">Credenciales (CSV)</a>
+    </span>
+  </div>
+  <table>
+    <thead><tr><th>DNI</th><th>Nombre</th><th>Entregas</th><th>Estado</th></tr></thead>
+    <tbody>
+    {% for e in inscriptos %}
+      <tr>
+        <td>{{ e.login }}</td>
+        <td><a href="{{ base }}/admin/estudiantes/{{ e.id }}">{{ e.full_name }}</a></td>
+        <td>{{ e.n_entregas }}</td>
+        <td><span class="pill pill-mini {{ 'pill-ok' if e.active else 'pill-warn' }}">{{ 'Habilitado' if e.active else 'Deshabilitado' }}</span></td>
+      </tr>
+    {% else %}
+      <tr><td colspan="4" class="muted">Sin estudiantes inscriptos — se cargan en <a href="{{ base }}/admin/estudiantes">Estudiantes</a>.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.venv/
+.env
+data/
+
+# Documentación e infraestructura del despliegue institucional (UNLu / CIDETIC):
+# rutas del servidor, proxy y unidad de systemd. Queda fuera del repositorio público.
+deploy/

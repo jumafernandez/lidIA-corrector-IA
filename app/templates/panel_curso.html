@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% from "_lidia.html" import lidia %}
+{% block title %}{{ course.name }}{% endblock %}
+{% block content %}
+{% if multi %}<p class="crumbs"><a href="{{ base }}/panel">← Mis cursos</a></p>{% endif %}
+<div class="hero">
+  {{ lidia('greet') }}
+  <div>
+    <h1>{{ course.name }}</h1>
+    <p class="muted">Hola, {{ user.full_name|nombre_pila }}. Estas son las instancias de evaluación del curso: entrá a una para presentar tu trabajo y recibir mi devolución.</p>
+  </div>
+</div>
+
+{% if not user.active %}
+  <div class="flash warn">{{ cfg.banner_deshabilitado }}</div>
+{% endif %}
+
+{% for it in items %}
+<section class="card">
+  <div class="row-between">
+    <h2><a href="{{ base }}/panel/instancia/{{ it.a.id }}">{{ it.a.name }}</a></h2>
+    <span>
+      {% if it.final %}
+        <span class="pill {{ 'pill-ok' if it.final.status == 'aprobada' else 'pill-warn' }}">{{ 'Corregida' if it.a.tipo == 'choice' else 'Final' }} {{ 'aprobada' if it.final.status == 'aprobada' else 'en revisión' }}</span>
+      {% elif it.a.tipo == 'choice' %}
+        <span class="pill">Entrega única</span>
+      {% else %}
+        <span class="pill {{ 'pill-warn' if it.restantes == 0 else 'pill-ok' }}">{{ it.restantes }} de {{ it.a.max_practicas }} devoluciones</span>
+      {% endif %}
+    </span>
+  </div>
+  <p class="muted">
+    {% if it.final %}
+      Ya presentaste tu entrega.
+    {% elif it.a.tipo == 'choice' %}
+      Tenés una única oportunidad de entrega.
+    {% elif it.restantes == 0 %}
+      Usaste todas las devoluciones de práctica; queda la entrega final.
+    {% else %}
+      Devoluciones de práctica disponibles.
+    {% endif %}
+    <a href="{{ base }}/panel/instancia/{{ it.a.id }}">Entrar →</a>
+  </p>
+</section>
+{% else %}
+<section class="card center-note">
+  <h2>Este curso todavía no tiene instancias de evaluación activas</h2>
+  <p class="muted">Cuando el equipo docente publique una, la vas a ver acá.</p>
+</section>
+{% endfor %}
+{% endblock %}

@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Estudiantes{% endblock %}
+{% block content %}
+<div class="row-between head">
+  <h1>Estudiantes</h1>
+  <span class="toolbar">
+    {% if cursos|length > 1 %}
+    <form method="get" action="{{ base }}/admin/estudiantes" class="inline">
+      <select name="curso" onchange="this.form.submit()">
+        <option value="">Todos mis cursos</option>
+        {% for c in cursos %}
+          <option value="{{ c.id }}" {{ 'selected' if curso_f == c.id }}>{{ c.name }}</option>
+        {% endfor %}
+      </select>
+    </form>
+    {% endif %}
+    {% if cursos %}
+    <a class="btn small primary" href="{{ base }}/admin/estudiantes/nuevo{{ '?curso=' ~ curso_f if curso_f }}">Nuevo estudiante</a>
+    <a class="btn small" href="{{ base }}/admin/estudiantes/importar{{ '?curso=' ~ curso_f if curso_f }}">Importar listado</a>
+    {% endif %}
+    <a class="btn small" href="{{ base }}/admin/credenciales.csv{{ '?curso=' ~ curso_f if curso_f }}">Credenciales (CSV)</a>
+  </span>
+</div>
+
+{% if not cursos %}
+<div class="flash warn">No tenés cursos asignados: pedile a la coordinación que te asigne antes de cargar estudiantes.</div>
+{% endif %}
+
+<section class="card">
+  <table>
+    <thead><tr><th>DNI</th><th>Nombre</th><th>Correo</th><th>Cursos</th><th>Estado</th><th></th></tr></thead>
+    <tbody>
+    {% for e in rows %}
+      <tr>
+        <td>{{ e.login }}</td>
+        <td><a href="{{ base }}/admin/estudiantes/{{ e.id }}">{{ e.full_name }}</a>{% if e.profile %} <span title="Tiene perfil de corrección">✎</span>{% endif %}</td>
+        <td>{{ e.email or '—' }}</td>
+        <td>
+          {% for d in detalle[e.id] %}
+            <span class="pill pill-mini" title="{{ d.name }}: {{ d.n_entregas }} entrega{{ 's' if d.n_entregas != 1 }}">
+              {{ d.name|truncate(28) }} · {{ d.n_entregas }}</span>
+          {% else %}<span class="muted small">sin curso</span>{% endfor %}
+        </td>
+        <td><span class="pill pill-mini {{ 'pill-ok' if e.active else 'pill-warn' }}">{{ 'Habilitado' if e.active else 'Deshabilitado' }}</span></td>
+        <td>
+          <form method="post" action="{{ base }}/admin/estudiantes/{{ e.id }}/toggle" class="inline">
+            <button class="btn small {{ 'ghost' if e.active else 'primary' }}">{{ 'Deshabilitar' if e.active else 'Habilitar' }}</button>
+          </form>
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="6" class="muted">Todavía no hay estudiantes cargados.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <p class="muted small">En «Cursos», el número es la cantidad de entregas en ese curso. Deshabilitar no borra nada: el estudiante sigue viendo su historial, con un aviso amable para regularizar lo administrativo (el texto se edita en Configuración).</p>
+</section>
+{% endblock %}

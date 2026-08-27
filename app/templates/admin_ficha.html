@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}{{ est.full_name }}{% endblock %}
+{% block content %}
+<p class="crumbs"><a href="{{ base }}/admin/estudiantes">← Estudiantes</a></p>
+<h1>{{ est.full_name }} <span class="pill pill-mini {{ 'pill-ok' if est.active else 'pill-warn' }}">{{ 'Habilitado' if est.active else 'Deshabilitado' }}</span></h1>
+<p class="muted">DNI {{ est.login }} · alta {{ est.created_at|fecha }}</p>
+
+{% if est.initial_password %}
+<p class="clave-inicial">🔑 Contraseña inicial: <code>{{ est.initial_password }}</code> —
+entregásela por un canal seguro. Deja de mostrarse cuando la cambie desde su cuenta.</p>
+{% endif %}
+
+<div class="grid2">
+  <section class="card">
+    <h2>Ficha</h2>
+    <form method="post" action="{{ base }}/admin/estudiantes/{{ est.id }}">
+      <input type="hidden" name="action" value="guardar">
+      <label>Apellido y nombre
+        <input name="full_name" value="{{ est.full_name }}">
+      </label>
+      <label>Correo
+        <input name="email" value="{{ est.email }}" type="text" placeholder="para avisarle la devolución final">
+      </label>
+      <label>Perfil de corrección (optativo — texto libre, todo lo largo que haga falta)
+        <textarea name="profile" rows="9" placeholder="Orienta el tono y el foco de las devoluciones de Lidia para esta persona. Ej.: viene de sistemas, puede recibir observaciones técnicas duras · perfil no informático, priorizar lo conceptual y sugerir recursos introductorios">{{ est.profile }}</textarea>
+      </label>
+      <p class="muted small">Ajusta tono y foco de la devolución de Lidia para esta persona. El estándar de exigencia es el mismo para todo el grupo. El DNI nunca se envía al modelo.</p>
+      <button type="submit" class="btn primary">Guardar</button>
+    </form>
+    <hr style="border: none; border-top: 1px solid var(--line); margin: 16px 0">
+    <div class="row-gap">
+      <form method="post" action="{{ base }}/admin/estudiantes/{{ est.id }}" class="inline" data-confirm="¿Generar una nueva contraseña para {{ est.full_name }}?">
+        <input type="hidden" name="action" value="reset_password">
+        <button type="submit" class="btn ghost">Regenerar contraseña</button>
+      </form>
+      <form method="post" action="{{ base }}/admin/estudiantes/{{ est.id }}" class="inline"
+            data-confirm="¿Eliminar a {{ est.full_name }}? Se pierde su usuario y sus inscripciones.">
+        <input type="hidden" name="action" value="eliminar">
+        <button type="submit" class="btn ghost">Eliminar</button>
+      </form>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Cursos</h2>
+    <table>
+      <thead><tr><th>Curso</th><th>Entregas</th><th></th></tr></thead>
+      <tbody>
+      {% for i in inscripciones %}
+        <tr>
+          <td><a href="{{ base }}/admin/cursos/{{ i.id }}">{{ i.name }}</a>{% if not i.active %} <span class="muted small">(inactivo)</span>{% endif %}</td>
+          <td>{{ i.n_entregas }}</td>
+          <td>
+            {% if i.n_entregas == 0 %}
+            <form method="post" action="{{ base }}/admin/estudiantes/{{ est.id }}" class="inline" data-confirm="¿Quitar a {{ est.full_name }} de «{{ i.name }}»?">
+              <input type="hidden" name="action" value="desinscribir">
+              <input type="hidden" name="curso_id" value="{{ i.id }}">
+              <button type="submit" class="btn small ghost">Quitar</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="3" class="muted">No está inscripto/a en ningún curso.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% if disponibles %}
+    <form method="post" action="{{ base }}/admin/estudiantes/{{ est.id }}" class="row-gap">
+      <input type="hidden" name="action" value="inscribir">
+      <select name="curso_id" style="flex: 1">
+        {% for c in disponibles %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+      </select>
+      <button type="submit" class="btn small primary">Inscribir</button>
+    </form>
+    {% endif %}
+
+    <h2 style="margin-top: 16px">Entregas</h2>
+    <table>
+      <thead><tr><th>Fecha</th><th>Curso</th><th>Instancia</th><th>Tipo</th><th>Estado</th><th></th></tr></thead>
+      <tbody>
+      {% for e in entregas %}
+        <tr>
+          <td>{{ e.created_at|fecha }}</td>
+          <td class="muted small">{{ e.course_name|truncate(20) }}</td>
+          <td class="muted small">{{ e.instancia|truncate(18) }}</td>
+          <td>{{ 'Final' if e.kind == 'final' else 'Práctica' }}</td>
+          <td>{{ {'ok':'Con devolución','pendiente':'Por revisar','aprobada':'Aprobada','reabierta':'Reabierta','error':'Error'}[e.status] }}</td>
+          <td><a href="{{ base }}/entrega/{{ e.id }}">Ver</a></td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6" class="muted">Sin entregas todavía.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </section>
+</div>
+{% endblock %}

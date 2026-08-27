@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Revisar entrega final{% endblock %}
+{% block content %}
+<p class="crumbs"><a href="{{ base }}/admin/entregas">← Entregas</a></p>
+<h1>Entrega final de {{ owner.full_name }}</h1>
+<p class="muted">{{ course.name }} · {{ assignment.name }} · {{ sub.created_at|fecha }} hs · {{ sub.original_filename or 'texto pegado' }} · {{ sub.text_chars }} caracteres
+  {% if owner.email %} · al aprobar se notifica a {{ owner.email }}{% if not smtp_ok %} <em>(SMTP sin configurar: quedará solo en la app)</em>{% endif %}{% endif %}</p>
+
+{% if sub.error %}<div class="flash bad">La IA no pudo generar una propuesta: {{ sub.error }}. Podés escribir la devolución a mano.</div>{% endif %}
+
+<div class="grid2">
+  <section class="card">
+    <h2>Texto entregado</h2>
+    <pre class="worktext tall">{{ sub.work_text }}</pre>
+  </section>
+  <section class="card">
+    <h2>Devolución {{ '(propuesta de la IA, editable)' if sub.ai_feedback_md else '' }}</h2>
+    {% if sub.status == 'aprobada' %}
+      <div class="prose">{{ sub.final_feedback_md|md|safe }}</div>
+      <p class="muted small">Aprobada el {{ sub.reviewed_at|fecha }} hs.</p>
+    {% else %}
+      <form method="post" action="{{ base }}/admin/final/{{ sub.id }}" data-busy="Guardando…">
+        <textarea name="feedback" rows="22">{{ sub.final_feedback_md or sub.ai_feedback_md }}</textarea>
+        <div class="row-gap">
+          <button type="submit" name="action" value="aprobar" class="btn primary">Aprobar y notificar</button>
+          <button type="submit" name="action" value="reabrir" class="btn ghost" formnovalidate>Reabrir (pedir nueva versión)</button>
+        </div>
+        <p class="muted small">Lo que apruebes acá es la devolución oficial que ve el estudiante — editala con libertad.</p>
+      </form>
+    {% endif %}
+  </section>
+</div>
+{% if sub.status != 'aprobada' %}
+<link rel="stylesheet" href="{{ base }}/static/vendor/easymde.min.css">
+<script src="{{ base }}/static/vendor/easymde.min.js"></script>
+<script>
+new EasyMDE({
+  element: document.querySelector('textarea[name="feedback"]'),
+  spellChecker: false,
+  status: false,
+  minHeight: '420px',
+  toolbar: ['bold', 'italic', 'heading', '|', 'unordered-list', 'ordered-list', 'quote', 'link', '|', 'preview', 'guide'],
+  forceSync: true,
+});
+</script>
+{% endif %}
+{% endblock %}

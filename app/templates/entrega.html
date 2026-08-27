@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% from "_lidia.html" import lidia %}
+{% block title %}Entrega{% endblock %}
+{% block content %}
+<p class="crumbs"><a href="{{ base }}{{ '/admin/entregas' if user.role in ('admin', 'docente') else '/panel/instancia/' ~ sub.assignment_id }}">← Volver</a></p>
+
+<div class="row-between">
+  <h1>{{ 'Entrega final' if sub.kind == 'final' else 'Devolución de práctica' }}</h1>
+  <span class="pill {{ 'pill-ok' if sub.status in ('ok','aprobada') else 'pill-warn' }}">
+    {{ {'ok':'Con devolución','pendiente':'En revisión docente','aprobada':'Aprobada','reabierta':'Reabierta','error':'Error'}[sub.status] }}
+  </span>
+</div>
+<p class="muted">{{ owner.full_name }} · {{ course.name }} · {{ assignment.name }} · {{ sub.created_at|fecha }} hs · {{ sub.original_filename or 'texto pegado' }} · {{ sub.text_chars }} caracteres{% if sub.truncated %} (texto truncado para el análisis){% endif %}</p>
+
+{% if user.role in ('admin', 'docente') and sub.kind == 'final' and sub.status == 'pendiente' %}
+  <p><a class="btn primary" href="{{ base }}/admin/final/{{ sub.id }}">Revisar y aprobar esta entrega</a></p>
+{% endif %}
+
+{% if sub.kind == 'final' %}
+  {% if sub.status == 'pendiente' and user.role == 'student' %}
+    <section class="card center-note">
+      <h2>En revisión del equipo docente</h2>
+      <p class="muted">Tu entrega final fue registrada. Cuando el equipo docente apruebe la devolución, la vas a ver acá{% if owner.email %} y te va a llegar a {{ owner.email }}{% endif %}.</p>
+    </section>
+  {% elif sub.status == 'aprobada' %}
+    <section class="card">
+      <h2>Devolución del equipo docente</h2>
+      <div class="prose">{{ sub.final_feedback_md|md|safe }}</div>
+    </section>
+  {% elif sub.status == 'reabierta' %}
+    <section class="card center-note">
+      <h2>Entrega reabierta</h2>
+      <p class="muted">El equipo docente reabrió esta entrega: podés presentar una nueva versión final desde tu espacio.</p>
+    </section>
+  {% endif %}
+  {% if user.role in ('admin', 'docente') and sub.ai_feedback_md %}
+    <section class="card">
+      <h2>Propuesta de la IA (visible solo para docentes)</h2>
+      <div class="prose">{{ sub.ai_feedback_md|md|safe }}</div>
+    </section>
+  {% endif %}
+{% else %}
+  <section class="card">
+    <div class="hero">
+      {{ lidia('greet') }}
+      <h2>La devolución de Lidia</h2>
+    </div>
+    <div class="prose">{{ sub.ai_feedback_md|md|safe }}</div>
+    <p class="muted small">Generada con IA ({{ sub.model_used }}) — orientativa; la calificación final la define el equipo docente.</p>
+  </section>
+
+  <section class="card">
+    <div class="row-between">
+      <h2>Preguntas sobre esta devolución</h2>
+      <span class="pill pill-mini">{{ q_restantes }} de {{ maxq }} disponibles</span>
+    </div>
+    {% for q in qs %}
+      <div class="qa">
+        <div class="q"><strong>Vos:</strong> {{ q.question }}</div>
+        <div class="a prose">{{ q.answer|md|safe }}</div>
+      </div>
+    {% else %}
+      <p class="muted">Podés usar estas preguntas para entender mejor la devolución: qué significa una observación, dónde aplica, cómo encarar una mejora. La IA no evalúa contenido nuevo por acá — eso es para tu próxima entrega.</p>
+    {% endfor %}
+    {% if puede_preguntar %}
+    <form method="post" action="{{ base }}/entrega/{{ sub.id }}/pregunta" data-busy="1" data-lidia="Lidia está pensando tu pregunta">
+      <textarea name="question" rows="3" required maxlength="2000" placeholder="Tu pregunta sobre la devolución"></textarea>
+      <button type="submit" class="btn primary">Preguntar (consume 1 de {{ q_restantes }})</button>
+    </form>
+    {% elif user.role == 'student' and q_restantes == 0 %}
+      <p class="muted">Usaste todas las preguntas de esta entrega.</p>
+    {% endif %}
+  </section>
+{% endif %}
+
+{% if user.role in ('admin', 'docente') %}
+<section class="card">
+  <details>
+    <summary>Texto entregado ({{ sub.text_chars }} caracteres)</summary>
+    <pre class="worktext">{{ sub.work_text }}</pre>
+  </details>
+</section>
+{% endif %}
+{% endblock %}

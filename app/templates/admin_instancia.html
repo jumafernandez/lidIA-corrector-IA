@@ -1,0 +1,217 @@
+{% extends "base.html" %}
+{% set tipo_nombre = {'abierto': 'Trabajo abierto', 'escrito': 'Examen escrito', 'choice': 'Multiple choice'}[assignment.tipo] %}
+{% set modelo_url = {
+  'abierto': 'https://docs.google.com/document/d/1H21oa4SMEYxeGQyEo2xPlFnPwy-Bh9sT2jwb8GO1TUo/edit',
+  'escrito': 'https://docs.google.com/document/d/1eN_8oygHaKkfvPGsdLQdfuNBUicY7glYLxbPAc86fiQ/edit',
+  'choice': 'https://docs.google.com/document/d/1qSmIAGk6e7Yo1eu6KPaac0JXjkX20Ih0omDarjzOv90/edit',
+}[assignment.tipo] %}
+{% block title %}{{ assignment.name }} · {{ course.name }}{% endblock %}
+{% block content %}
+<p class="crumbs"><a href="{{ base }}/admin/cursos/{{ course.id }}">← {{ course.name }}</a></p>
+<h1>{{ assignment.name }}
+  <span class="pill pill-mini">{{ tipo_nombre }}</span>
+  <span class="pill pill-mini {{ 'pill-ok' if assignment.active else 'pill-warn' }}">{{ 'Activa' if assignment.active else 'Borrador' }}</span></h1>
+<p class="muted"><a href="{{ base }}/admin/instancias/{{ assignment.id }}/editar">✎ Editar nombre y tipo</a> ·
+  {{ n_entregas }} entrega{{ 's' if n_entregas != 1 }} hasta ahora ·
+  📄 <a href="{{ modelo_url }}" target="_blank" rel="noopener">ver el modelo de documento para {{ tipo_nombre|lower }}</a></p>
+
+<form method="post" action="{{ base }}/admin/instancias/{{ assignment.id }}" enctype="multipart/form-data">
+  <section class="card">
+    <h2>Material de corrección</h2>
+
+    <div class="campo">
+      <label>Consigna
+        <textarea name="consigna" rows="10" placeholder="Qué tienen que entregar y en qué formato">{{ assignment.consigna }}</textarea>
+      </label>
+      <details class="alt">
+        <summary>…o subila desde un archivo (PDF, DOCX, TXT o MD)</summary>
+        <input type="file" name="consigna_archivo" accept=".pdf,.docx,.txt,.md">
+        <p class="muted small">Al guardar, el texto extraído reemplaza el campo y queda editable.</p>
+      </details>
+    </div>
+
+    {% if assignment.tipo in ('escrito', 'choice') %}
+    {% set es_choice = assignment.tipo == 'choice' %}
+    <p class="muted small">{{ 'La opción correcta de cada pregunta es material interno: el estudiante nunca la ve.'
+      if es_choice else
+      'Las respuestas esperadas son material interno: el estudiante nunca las ve, y Lidia solo las revela en la corrección final (en las prácticas señala el error y orienta el repaso sin dar la solución).' }}</p>
+    <div class="campo">
+      <div class="row-between">
+        <label style="margin: 0">Preguntas <span class="muted small">— cada una con {{ 'sus opciones, cuál es la correcta' if es_choice else 'su respuesta esperada' }} y su puntaje</span></label>
+        <span class="pill pill-mini" id="puntaje-total">Puntaje total: {{ puntaje_total|round(2)|int if puntaje_total == puntaje_total|round(0) else puntaje_total }}</span>
+      </div>
+      <div id="items">
+        {% for it in items %}
+        <div class="item">
+          <div class="item-cab">
+            <span class="item-n"></span>
+            <label class="item-puntaje">Puntaje
+              <input name="item_puntaje" value="{{ it.puntaje|round(2)|int if it.puntaje == it.puntaje|round(0) else it.puntaje }}" inputmode="decimal">
+            </label>
+            <button type="button" class="btn small ghost quitar">Quitar</button>
+          </div>
+          <label>Pregunta
+            <textarea name="item_enunciado" rows="3" placeholder="Enunciado de la pregunta">{{ it.enunciado }}</textarea>
+          </label>
+          {% if es_choice %}
+          <label>Opciones <span class="muted small">— una por línea; se numeran a), b), c)… solas</span>
+            <textarea name="item_opciones" rows="4" placeholder="Primera opción&#10;Segunda opción&#10;Tercera opción">{{ it.opciones }}</textarea>
+          </label>
+          <label class="item-correcta">Opción correcta
+            <input name="item_respuesta" value="{{ it.respuesta }}" maxlength="1" placeholder="b">
+          </label>
+          {% else %}
+          <label>Respuesta esperada <span class="muted small">— material interno, el estudiante no la ve</span>
+            <textarea name="item_respuesta" rows="4" placeholder="Qué tiene que decir una respuesta correcta">{{ it.respuesta }}</textarea>
+          </label>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      <div class="row-gap">
+        <button type="button" class="btn small primary" id="agregar-item">+ Agregar pregunta</button>
+      </div>
+      <details class="alt">
+        <summary>…o importá el examen desde un documento (PDF, DOCX, TXT o MD)</summary>
+        <input type="file" name="archivo" accept=".pdf,.docx,.txt,.md" form="form-importar">
+        <button type="submit" class="btn small" form="form-importar"
+                onclick="return confirm('Se van a leer las preguntas del documento y reemplazar las que estén cargadas. ¿Seguimos?')">Importar preguntas</button>
+        <p class="muted small">Lidia separa el documento en preguntas {{ 'con sus opciones y su clave' if es_choice else 'con su respuesta esperada' }}
+        y las deja acá para que las revises antes de guardar. Si el documento es solo el enunciado del parcial,
+        {{ 'la opción correcta queda vacía' if es_choice else 'las respuestas quedan vacías' }} para que la completes.</p>
+      </details>
+    </div>
+    {% endif %}
+
+    {% if assignment.tipo != 'choice' %}
+    <div class="campo">
+      <label>{{ 'Rúbrica (un criterio por línea)' if assignment.tipo == 'abierto' else 'Criterios de corrección (opcional)' }}
+        <textarea name="rubrica" rows="9" placeholder="1. Criterio: qué se evalúa&#10;2. Criterio: qué se evalúa">{{ assignment.rubrica }}</textarea>
+      </label>
+      <details class="alt">
+        <summary>…o subila desde un archivo (PDF, DOCX, TXT o MD)</summary>
+        <input type="file" name="rubrica_archivo" accept=".pdf,.docx,.txt,.md">
+        <p class="muted small">Al guardar, el texto extraído reemplaza el campo y queda editable.</p>
+      </details>
+    </div>
+    {% endif %}
+
+  </section>
+
+  <section class="card">
+    <h2>Ajustes</h2>
+    <div class="ajustes">
+      <label>Indicaciones para Lidia (opcional)
+        <textarea name="prompt_extra" rows="3" placeholder="Ej.: si el trabajo no declara el uso de IA generativa en su desarrollo, pedirlo explícitamente">{{ assignment.prompt_extra }}</textarea>
+      </label>
+      {% if assignment.tipo != 'choice' %}
+      <label>Devoluciones de práctica (1–10)
+        <input name="max_practicas" value="{{ assignment.max_practicas }}">
+      </label>
+      <label>Preguntas por devolución (0–10)
+        <input name="max_preguntas" value="{{ assignment.max_preguntas }}">
+      </label>
+      {% endif %}
+    </div>
+    <label style="font-weight: 400; margin-bottom: 0">
+      <input type="checkbox" name="active" value="1" {{ 'checked' if assignment.active }} style="width: auto; margin-right: 8px">
+      Activa — visible para los estudiantes del curso
+      {% if assignment.tipo == 'choice' %}<span class="muted small">· entrega única, sin cupos de práctica</span>{% endif %}
+    </label>
+  </section>
+
+  <div class="savebar">
+    <button type="submit" class="btn primary">Guardar instancia</button>
+    {% if n_entregas == 0 %}
+    <button type="submit" name="action" value="eliminar" class="btn ghost" formnovalidate
+            onclick="return confirm('¿Eliminar la instancia «{{ assignment.name }}»?')">Eliminar</button>
+    {% endif %}
+    <span class="nota">Para activarla hace falta el material de corrección completo.</span>
+  </div>
+</form>
+
+{% if assignment.tipo in ('escrito', 'choice') %}
+{# los controles de importación viven dentro del formulario principal y apuntan acá con form="form-importar" #}
+<form id="form-importar" method="post" action="{{ base }}/admin/instancias/{{ assignment.id }}/importar"
+      enctype="multipart/form-data" hidden data-lidia="Lidia está leyendo el examen"></form>
+
+<template id="molde-item">
+  <div class="item">
+    <div class="item-cab">
+      <span class="item-n"></span>
+      <label class="item-puntaje">Puntaje
+        <input name="item_puntaje" value="1" inputmode="decimal">
+      </label>
+      <button type="button" class="btn small ghost quitar">Quitar</button>
+    </div>
+    <label>Pregunta
+      <textarea name="item_enunciado" rows="3" placeholder="Enunciado de la pregunta"></textarea>
+    </label>
+    {% if assignment.tipo == 'choice' %}
+    <label>Opciones <span class="muted small">— una por línea; se numeran a), b), c)… solas</span>
+      <textarea name="item_opciones" rows="4" placeholder="Primera opción&#10;Segunda opción&#10;Tercera opción"></textarea>
+    </label>
+    <label class="item-correcta">Opción correcta
+      <input name="item_respuesta" maxlength="1" placeholder="b">
+    </label>
+    {% else %}
+    <label>Respuesta esperada <span class="muted small">— material interno, el estudiante no la ve</span>
+      <textarea name="item_respuesta" rows="4" placeholder="Qué tiene que decir una respuesta correcta"></textarea>
+    </label>
+    {% endif %}
+  </div>
+</template>
+{% endif %}
+
+<link rel="stylesheet" href="{{ base }}/static/vendor/easymde.min.css">
+<script src="{{ base }}/static/vendor/easymde.min.js"></script>
+<script>
+// editores con formato (Markdown) para el material que el estudiante ve renderizado
+const barra = ['bold', 'italic', 'heading', '|', 'unordered-list', 'ordered-list', 'quote', 'link', '|', 'preview', 'guide'];
+function editor(sel, alto, placeholder) {
+  const el = document.querySelector(sel);
+  if (el) new EasyMDE({ element: el, spellChecker: false, status: false, forceSync: true,
+                        toolbar: barra, minHeight: alto, placeholder: placeholder });
+}
+editor('textarea[name="consigna"]', '360px', 'Qué tienen que entregar y en qué formato');
+editor('textarea[name="rubrica"]', '300px', '1. Criterio: qué se evalúa\n2. Criterio: qué se evalúa');
+editor('textarea[name="respuestas"]', '300px', '1: b\n2: a\n3: d');
+
+// preguntas del examen escrito: numeración, alta/baja y puntaje total en vivo
+const lista = document.getElementById('items');
+if (lista) {
+  const molde = document.getElementById('molde-item');
+  const totalPill = document.getElementById('puntaje-total');
+
+  function refrescar() {
+    [...lista.children].forEach((item, i) => {
+      item.querySelector('.item-n').textContent = 'Pregunta ' + (i + 1);
+    });
+    const total = [...lista.querySelectorAll('input[name="item_puntaje"]')]
+      .reduce((suma, input) => suma + (parseFloat(String(input.value).replace(',', '.')) || 0), 0);
+    totalPill.textContent = 'Puntaje total: ' + (Math.round(total * 100) / 100);
+  }
+
+  document.getElementById('agregar-item').addEventListener('click', () => {
+    lista.appendChild(molde.content.cloneNode(true));
+    refrescar();
+    const ultimo = lista.lastElementChild;
+    ultimo.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    ultimo.querySelector('textarea').focus();
+  });
+
+  lista.addEventListener('click', ev => {
+    if (!ev.target.classList.contains('quitar')) return;
+    const item = ev.target.closest('.item');
+    const vacio = ![...item.querySelectorAll('textarea')].some(t => t.value.trim());
+    if (vacio || confirm('¿Quitar esta pregunta?')) { item.remove(); refrescar(); }
+  });
+
+  lista.addEventListener('input', ev => {
+    if (ev.target.name === 'item_puntaje') refrescar();
+  });
+
+  refrescar();
+}
+</script>
+{% endblock %}

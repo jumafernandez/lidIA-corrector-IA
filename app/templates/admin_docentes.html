@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Docentes{% endblock %}
+{% block content %}
+<div class="row-between head">
+  <h1>Docentes</h1>
+  <a class="btn small primary" href="{{ base }}/admin/docentes/nuevo">Nuevo docente</a>
+</div>
+
+<section class="card">
+  <table>
+    <thead><tr><th>Usuario</th><th>Nombre</th><th>Correo</th><th>Cursos</th><th>Estado</th><th></th></tr></thead>
+    <tbody>
+    {% for d in rows %}
+      <tr>
+        <td>{{ d.login }}</td>
+        <td><a href="{{ base }}/admin/docentes/{{ d.id }}">{{ d.full_name }}</a>
+          {% if d.role == 'admin' %} <span class="pill pill-mini">Coordinación</span>{% endif %}</td>
+        <td>{{ d.email or '—' }}</td>
+        <td class="muted small">{{ d.cursos or '—' }}</td>
+        <td><span class="pill pill-mini {{ 'pill-ok' if d.active else 'pill-warn' }}">{{ 'Habilitado' if d.active else 'Deshabilitado' }}</span></td>
+        <td><a class="btn small" href="{{ base }}/admin/docentes/{{ d.id }}">Ficha</a></td>
+      </tr>
+    {% else %}
+      <tr><td colspan="6" class="muted">Todavía no hay docentes cargados.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% set editando = assignment is not none %}
+{% set global_ = course is none %}
+{% set tipo_actual = assignment.tipo if editando else 'abierto' %}
+{% set bloqueado = editando and assignment.active %}
+{% block title %}{{ 'Nombre y tipo · ' ~ assignment.name if editando else 'Nueva instancia' }}{% endblock %}
+{% block content %}
+<p class="crumbs"><a href="{{ base }}{{ '/admin/instancias/' ~ assignment.id if editando else ('/admin/instancias' if global_ else '/admin/cursos/' ~ course.id) }}">←
+  {{ assignment.name if editando else ('Instancias' if global_ else course.name) }}</a></p>
+<h1>{{ 'Nombre y tipo' if editando else 'Nueva instancia de evaluación' }}</h1>
+{% if not global_ %}<p class="muted">{{ course.name }}{% if editando %} · paso 1 de 2: qué es esta instancia{% endif %}</p>{% endif %}
+
+<section class="card">
+  <form method="post" action="{{ base }}{{ '/admin/instancias/' ~ assignment.id ~ '/editar' if editando else ('/admin/instancias/crear' if global_ else '/admin/cursos/' ~ course.id ~ '/instancias') }}">
+    {% if global_ %}
+    <label>Curso
+      <select name="curso_id" required>
+        {% for c in cursos %}<option value="{{ c.id }}" {{ 'selected' if curso_f == c.id }}>{{ c.name }}</option>{% endfor %}
+      </select>
+    </label>
+    {% endif %}
+    <label>Nombre
+      <input name="name" required {{ 'autofocus' if not global_ }} value="{{ assignment.name if editando else '' }}"
+             placeholder="Ej.: TP1: agentes de búsqueda · Parcial 1 · Trabajo Final">
+    </label>
+
+    <p style="margin-bottom: 4px"><strong>Tipo de evaluación</strong></p>
+    {% if bloqueado %}
+      <p class="muted small">La instancia está activa: el tipo no se puede cambiar. Pasala a borrador desde su ficha si necesitás cambiarlo.</p>
+    {% endif %}
+    <label style="font-weight: 400">
+      <input type="radio" name="tipo" value="abierto" {{ 'checked' if tipo_actual == 'abierto' }} {{ 'disabled' if bloqueado }} style="width: auto; margin-right: 8px">
+      <strong>Trabajo abierto</strong> — TP o trabajo final. Se evalúa con consigna y rúbrica, criterio por criterio; sin nota numérica en las prácticas.
+    </label>
+    <label style="font-weight: 400">
+      <input type="radio" name="tipo" value="escrito" {{ 'checked' if tipo_actual == 'escrito' }} {{ 'disabled' if bloqueado }} style="width: auto; margin-right: 8px">
+      <strong>Examen escrito</strong> — se corrige contra respuestas esperadas. Las prácticas orientan sin revelar la respuesta; la corrección final la revela y propone calificación.
+    </label>
+    <label style="font-weight: 400">
+      <input type="radio" name="tipo" value="choice" {{ 'checked' if tipo_actual == 'choice' }} {{ 'disabled' if bloqueado }} style="width: auto; margin-right: 8px">
+      <strong>Multiple choice</strong> — clave de corrección y una única oportunidad de entrega, con calificación sugerida y firma docente.
+    </label>
+
+    <button type="submit" class="btn primary">{{ 'Guardar y volver a la ficha' if editando else 'Crear y pasar a la ficha' }}</button>
+    <p class="muted small">
+      {% if editando %}
+        Cambiar el tipo cambia qué material pide la ficha. Lo que hayas cargado no se borra: si volvés al tipo anterior, reaparece.
+      {% else %}
+        En la pantalla siguiente se trabaja la instancia: consigna, material de corrección, cupos y activación.
+      {% endif %}
+    </p>
+  </form>
+</section>
+{% endblock %}

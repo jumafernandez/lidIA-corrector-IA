@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Entregas{% endblock %}
+{% block content %}
+<div class="row-between head">
+  <h1>Entregas</h1>
+  {% if cursos|length > 1 %}
+  <form method="get" action="{{ base }}/admin/entregas" class="inline toolbar">
+    <select name="curso" onchange="this.form.submit()">
+      <option value="">Todos los cursos</option>
+      {% for c in cursos %}
+        <option value="{{ c.id }}" {{ 'selected' if curso_f == c.id }}>{{ c.name }}</option>
+      {% endfor %}
+    </select>
+  </form>
+  {% endif %}
+</div>
+<div class="stats">
+  <div class="stat"><b>{{ stats.activos }}</b><span>estudiantes habilitados</span></div>
+  <div class="stat"><b>{{ stats.estudiantes - stats.activos }}</b><span>deshabilitados</span></div>
+  <div class="stat"><b>{{ stats.practicas }}</b><span>devoluciones de práctica</span></div>
+  <div class="stat {{ 'stat-warn' if stats.pendientes }}"><b>{{ stats.pendientes }}</b><span>finales por revisar</span></div>
+</div>
+
+<section class="card">
+  <table>
+    <thead><tr><th>Fecha</th><th>Estudiante</th><th>Curso</th><th>Instancia</th><th>Tipo</th><th>Estado</th><th></th></tr></thead>
+    <tbody>
+    {% for e in rows %}
+      <tr>
+        <td>{{ e.created_at|fecha }}</td>
+        <td>{{ e.full_name }} <span class="muted small">({{ e.login }})</span></td>
+        <td class="muted small">{{ e.course_name|truncate(26) }}</td>
+        <td class="muted small">{{ e.instancia|truncate(22) }}</td>
+        <td>{{ 'Final' if e.kind == 'final' else 'Práctica' }}</td>
+        <td><span class="pill pill-mini {{ 'pill-warn' if e.status == 'pendiente' else ('pill-ok' if e.status in ('ok','aprobada') else '') }}">
+          {{ {'ok':'Con devolución','pendiente':'Por revisar','aprobada':'Aprobada','reabierta':'Reabierta','error':'Error'}[e.status] }}</span></td>
+        <td>
+          {% if e.kind == 'final' and e.status == 'pendiente' %}<a class="btn small primary" href="{{ base }}/admin/final/{{ e.id }}">Revisar</a>
+          {% else %}<a href="{{ base }}/entrega/{{ e.id }}">Ver</a>{% endif %}
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="7" class="muted">Todavía no hay entregas.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

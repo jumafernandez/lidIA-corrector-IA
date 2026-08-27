@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Nuevo curso{% endblock %}
+{% block content %}
+<p class="crumbs"><a href="{{ base }}/admin/cursos">← Cursos</a></p>
+<h1>Nuevo curso</h1>
+
+<section class="card">
+  <form method="post" action="{{ base }}/admin/cursos/crear">
+    <label>Nombre
+      <input name="name" required placeholder="Ej.: Introducción a la Inteligencia Artificial (2026)" autofocus>
+    </label>
+    {% if docentes %}
+    <p style="margin-bottom: 4px"><strong>Docentes del curso</strong></p>
+    {% for d in docentes %}
+      <label style="font-weight: 400">
+        <input type="checkbox" name="docentes" value="{{ d.id }}" style="width: auto; margin-right: 8px">
+        {{ d.full_name }} <span class="muted small">({{ d.login }}{{ ' · coordinación' if d.role == 'admin' }})</span>
+      </label>
+    {% endfor %}
+    {% endif %}
+    <button type="submit" class="btn primary">Crear curso</button>
+    <p class="muted small">Después, en la ficha del curso, se crean sus instancias de evaluación (TP, parcial,
+    trabajo final…), cada una con su consigna, su material de corrección y sus cupos.</p>
+  </form>
+</section>
+{% endblock %}

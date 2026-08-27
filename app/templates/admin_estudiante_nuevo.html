@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Nuevo estudiante{% endblock %}
+{% block content %}
+<p class="crumbs"><a href="{{ base }}/admin/estudiantes">← Estudiantes</a></p>
+<h1>Nuevo estudiante</h1>
+
+<section class="card">
+  <form method="post" action="{{ base }}/admin/estudiantes/alta">
+    <div class="grid2">
+      <label>DNI
+        <input name="dni" required placeholder="30123456" autofocus>
+      </label>
+      <label>Apellido y nombre
+        <input name="full_name" required placeholder="Gómez, María">
+      </label>
+    </div>
+    <div class="grid2">
+      <label>Correo
+        <input name="email" type="text" placeholder="opcional — para avisarle la devolución final">
+      </label>
+      <label>Curso
+        <select name="curso_id" required>
+          {% for c in cursos %}<option value="{{ c.id }}" {{ 'selected' if curso_f == c.id }}>{{ c.name }}</option>{% endfor %}
+        </select>
+      </label>
+    </div>
+    <label>Perfil de corrección (optativo — texto libre, todo lo largo que haga falta)
+      <textarea name="profile" rows="7" placeholder="Orienta el tono y el foco de las devoluciones de Lidia para esta persona. Ej.: viene de sistemas, puede recibir observaciones técnicas duras · perfil no informático, priorizar lo conceptual y sugerir recursos introductorios"></textarea>
+    </label>
+    <button type="submit" class="btn primary">Dar de alta</button>
+    <p class="muted small">Se genera una contraseña inicial y se muestra al crear. Si el DNI ya existe, solo se lo
+    inscribe en el curso elegido. El perfil ajusta la devolución sin cambiar el estándar de exigencia; el DNI nunca
+    se envía al modelo.</p>
+  </form>
+</section>
+{% endblock %}

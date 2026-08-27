@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Importar estudiantes{% endblock %}
+{% block content %}
+<p class="crumbs"><a href="{{ base }}/admin/estudiantes">← Estudiantes</a></p>
+<h1>Importar estudiantes</h1>
+
+<section class="card">
+  <form method="post" action="{{ base }}/admin/estudiantes/cargar" enctype="multipart/form-data" data-busy="1" data-lidia="Lidia está creando los usuarios">
+    <label>Curso
+      <select name="curso_id" required>
+        {% for c in cursos %}<option value="{{ c.id }}" {{ 'selected' if curso_f == c.id }}>{{ c.name }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Archivo CSV
+      <input type="file" name="archivo" accept=".csv,.txt">
+    </label>
+    <details class="alt">
+      <summary>…o pegá el listado (una línea por estudiante)</summary>
+      <textarea name="listado" rows="8" placeholder="30123456, Gómez María, mgomez@ejemplo.com&#10;28987654, Pérez Juan, jperez@ejemplo.com"></textarea>
+    </details>
+    <button type="submit" class="btn primary">Importar</button>
+    <p class="muted small">Formato: <code>DNI, Apellido y Nombre, correo</code> — el correo es opcional y también
+    sirven «;» o tabulaciones, directo desde una planilla. A cada estudiante nuevo se le genera una contraseña
+    inicial (después se descargan todas en el CSV de credenciales); los DNI que ya existen solo se inscriben al curso.</p>
+  </form>
+</section>
+{% endblock %}

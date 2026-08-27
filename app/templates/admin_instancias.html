@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Instancias de evaluación{% endblock %}
+{% block content %}
+<div class="row-between head">
+  <h1>Instancias de evaluación</h1>
+  {% if cursos %}
+  <a class="btn small primary" href="{{ base }}/admin/instancias/nueva">Nueva instancia</a>
+  {% endif %}
+</div>
+
+<section class="card">
+  <table>
+    <thead><tr><th>Instancia</th><th>Curso</th><th>Tipo</th><th>Entregas</th><th>Finales por revisar</th><th>Estado</th><th></th></tr></thead>
+    <tbody>
+    {% for r in rows %}
+      <tr>
+        <td><a href="{{ base }}/admin/instancias/{{ r.a.id }}">{{ r.a.name }}</a></td>
+        <td class="muted small"><a href="{{ base }}/admin/cursos/{{ r.curso.id }}">{{ r.curso.name|truncate(34) }}</a></td>
+        <td class="muted small">{{ {'abierto': 'Trabajo abierto', 'escrito': 'Examen escrito', 'choice': 'Multiple choice'}[r.a.tipo] }}</td>
+        <td>{{ r.a.n_entregas }}</td>
+        <td>{% if r.a.pendientes %}<span class="pill pill-mini pill-warn">{{ r.a.pendientes }}</span>{% else %}—{% endif %}</td>
+        <td><span class="pill pill-mini {{ 'pill-ok' if r.a.active else 'pill-warn' }}">{{ 'Activa' if r.a.active else 'Borrador' }}</span></td>
+        <td><a class="btn small" href="{{ base }}/admin/instancias/{{ r.a.id }}">Ficha</a></td>
+      </tr>
+    {% else %}
+      <tr><td colspan="7" class="muted">Todavía no hay instancias de evaluación en tus cursos.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}
