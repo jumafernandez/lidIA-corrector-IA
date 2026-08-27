@@ -90,10 +90,17 @@ location /entregas/ {
 
 ## Administración
 
-* **Cursos** — la coordinación los crea y asigna docentes. Las **instancias de evaluación** (tipo, consigna, rúbrica/respuestas, cupos, activarlas) las gestionan los docentes del curso desde la ficha del curso.
+* **Cursos** — una **materia** tiene varias **cursadas** (2025, 2026, contracursada…). La coordinación las crea y asigna docentes. Cada cursada tiene su **programa** (contenidos, bibliografía, equipo docente): Lidia lo usa como contexto en todas sus instancias, para situar los comentarios en las unidades que se dieron y no reclamar temas que el curso no cubrió. El programa no es criterio de evaluación: el estándar es la consigna y la rúbrica.
+* **Instancias de evaluación** — cada cursada tiene las suyas (TP, parcial, propuesta, trabajo final), con su tipo, consigna, rúbrica o respuestas esperadas, cupos y cantidad máxima de integrantes. Las gestionan los docentes de la cursada desde su ficha.
 * **Docentes** — ABM de la coordinación: usuario, contraseña generada, cursos a cargo.
 * **Estudiantes** — alta individual, CSV o pegado masivo; ficha con correo, inscripciones y el **perfil de corrección**: orientación de la devolución para esa persona (más técnica, más pedagógica…). Ajusta tono y foco; el estándar de exigencia es el mismo para todo el grupo.
 * **Configuración** — lo global: aviso para deshabilitados y si se envía el nombre de pila al modelo.
+
+## Investigación
+
+LidIA registra, mientras se usa, lo que después no se puede reconstruir: la configuración exacta con la que se generó cada devolución, el costo y la latencia del modelo, **cuánto reescribió el equipo docente la propuesta de la IA antes de firmarla**, si el estudiantado la leyó y si le sirvió.
+
+El estudiantado decide en «Tu cuenta» si sus entregas pueden usarse; sin ese consentimiento explícito quedan fuera de toda exportación, y usa el sistema exactamente igual. Lo exportado va seudonimizado: cada persona aparece con un código estable por instalación que no permite volver a ella.
 
 ## Pendiente (ideas en agenda)
 

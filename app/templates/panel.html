@@ -62,6 +62,38 @@
 {% endif %}
 {% endif %}
 
+{% if assignment.max_integrantes > 1 %}
+<section class="card">
+  <div class="row-between">
+    <h2>Tu grupo</h2>
+    <span class="pill pill-mini">Hasta {{ assignment.max_integrantes }} integrantes</span>
+  </div>
+  {% if grupo %}
+    <p>Entregás junto a <strong>{% for c in companeros %}{{ c.full_name }}{{ ', ' if not loop.last }}{% else %}nadie todavía{% endfor %}</strong>.
+    El cupo de devoluciones y la entrega final son del grupo: lo que entrega uno, vale para todos.</p>
+    {% if grupo_cerrado %}
+      <p class="muted small">El grupo ya tiene entregas, así que quedó cerrado. Si hubo un error, hablá con el equipo docente.</p>
+    {% else %}
+    <form method="post" action="{{ base }}/panel/instancia/{{ assignment.id }}/grupo" class="inline"
+          data-confirm="¿Salir del grupo y volver a entregar por tu cuenta?">
+      <input type="hidden" name="action" value="salir">
+      <button type="submit" class="btn small ghost">Salir del grupo</button>
+    </form>
+    {% endif %}
+  {% elif user.active and course.active %}
+    <p class="muted">Podés hacer este trabajo en grupo. Cargá el DNI de tus compañeros y quedan los tres —vos incluido—
+    con el mismo cupo y la misma devolución.</p>
+    <form method="post" action="{{ base }}/panel/instancia/{{ assignment.id }}/grupo">
+      <label>DNI de tus compañeros
+        <input name="companeros" required placeholder="30123456, 28987654">
+        <span class="ayuda">Separados por coma. Tienen que estar en esta cursada y no pertenecer a otro grupo.</span>
+      </label>
+      <button type="submit" class="btn small primary">Armar grupo</button>
+    </form>
+  {% endif %}
+</section>
+{% endif %}
+
 {% if assignment.tipo != 'choice' %}
 <section class="card">
   <div class="row-between">
@@ -166,7 +198,7 @@
       <tr>
         <td>{{ e.created_at|fecha }}</td>
         <td>{{ 'Entrega final' if e.kind == 'final' else 'Práctica' }}</td>
-        <td>{{ e.original_filename or 'texto pegado' }}</td>
+        <td>{{ e.original_filename or 'texto pegado' }}{% if e.autor and e.autor != user.full_name %} <span class="muted small">· {{ e.autor|nombre_pila }}</span>{% endif %}</td>
         <td><span class="pill pill-mini {{ 'pill-ok' if e.status in ('ok','aprobada') else 'pill-warn' }}">
           {{ {'ok':'Con devolución','pendiente':'En revisión','aprobada':'Aprobada','reabierta':'Reabierta','error':'Error'}[e.status] }}</span></td>
         <td><a href="{{ base }}/entrega/{{ e.id }}">Ver</a></td>

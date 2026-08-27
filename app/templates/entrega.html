@@ -47,6 +47,24 @@
     </div>
     <div class="prose">{{ sub.ai_feedback_md|md|safe }}</div>
     <p class="muted small">Generada con IA ({{ sub.model_used }}) — orientativa; la calificación final la define el equipo docente.</p>
+
+    {% if user.role == 'student' %}
+    <div class="valoracion">
+      {% if sub.valoracion %}
+        <p class="muted small">{{ '👍 Marcaste esta devolución como útil.' if sub.valoracion == 1 else '👎 Marcaste que esta devolución no te sirvió.' }}
+        {% if sub.valoracion_texto %}«{{ sub.valoracion_texto }}»{% endif %}</p>
+      {% else %}
+        <form method="post" action="{{ base }}/entrega/{{ sub.id }}/valorar">
+          <p class="muted small" style="margin-bottom: 6px">¿Te sirvió esta devolución? Es anónimo para tus compañeros y nos ayuda a mejorarla.</p>
+          <input name="comentario" placeholder="Si querés, contanos por qué (opcional)">
+          <div class="row-gap">
+            <button type="submit" name="valor" value="1" class="btn small">👍 Me sirvió</button>
+            <button type="submit" name="valor" value="-1" class="btn small ghost">👎 No me sirvió</button>
+          </div>
+        </form>
+      {% endif %}
+    </div>
+    {% endif %}
   </section>
 
   <section class="card">

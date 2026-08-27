@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Investigación{% endblock %}
+{% block content %}
+<h1>Datos para investigación</h1>
+<p class="muted">Lo que el sistema registra mientras se usa, para poder estudiar después si las
+devoluciones automáticas ayudan a aprender. Solo se exporta el estudiantado que dio su
+consentimiento, y siempre sin nombre, DNI ni correo.</p>
+
+<section class="card">
+  <h2>Consentimiento</h2>
+  <div class="cifras">
+    <div class="cifra"><strong>{{ r.consintieron }}</strong><span>aceptaron</span></div>
+    <div class="cifra"><strong>{{ r.rechazaron }}</strong><span>no aceptaron</span></div>
+    <div class="cifra"><strong>{{ r.sin_responder }}</strong><span>sin responder</span></div>
+  </div>
+  {% if r.sin_responder %}
+  <p class="muted small">Quien no respondió queda afuera del análisis. La pregunta le aparece en
+  «Tu cuenta»; conviene mencionarla en la primera clase y no volver a insistir.</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>Qué hay registrado hoy</h2>
+  <div class="cifras">
+    <div class="cifra"><strong>{{ r.entregas }}</strong><span>entregas</span></div>
+    <div class="cifra"><strong>{{ r.exportables }}</strong><span>exportables</span></div>
+    <div class="cifra"><strong>{{ r.corregidas }}</strong><span>corregidas</span></div>
+    <div class="cifra"><strong>{{ r.con_reescritura }}</strong><span>con reescritura medida</span></div>
+    <div class="cifra"><strong>{{ r.reescritura_media if r.reescritura_media else '—' }}</strong><span>reescritura media</span></div>
+    <div class="cifra"><strong>{{ r.leidas }}</strong><span>devoluciones leídas</span></div>
+    <div class="cifra"><strong>{{ r.valoradas }}</strong><span>valoradas</span></div>
+    <div class="cifra"><strong>{{ r.utiles }}</strong><span>«me sirvió»</span></div>
+  </div>
+  <p class="muted small"><strong>Reescritura media</strong> es cuánto reescribe el equipo docente la
+  propuesta de la IA antes de firmarla: 0 significa que se firmó tal cual, 1 que se escribió de nuevo
+  de punta a punta. Es la medida central del sistema, y la única que no se puede reconstruir después.</p>
+  {% if r.ediciones_sin_fechas %}
+  <div class="flash warn">Hay {{ r.ediciones_sin_fechas }} cursada(s) activa(s) sin fechas de inicio
+  y fin. Sin eso no se puede situar cada entrega dentro del cuatrimestre (si llegó la primera semana
+  o la última). Se cargan en la ficha de cada cursada.</div>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>Exportar</h2>
+  <p><a class="btn primary" href="{{ base }}/admin/investigacion/entregas.csv">Descargar entregas (CSV)</a>
+     <a class="btn ghost" href="{{ base }}/admin/investigacion/configuraciones.csv">Descargar configuraciones (CSV)</a></p>
+  <p class="muted small">La tabla de entregas trae un caso por entrega con {{ campos|length }} columnas:
+  {{ campos|join(', ') }}.</p>
+  <p class="muted small">La de configuraciones trae, por entrega, la consigna y la rúbrica exactas con
+  las que se generó esa devolución. Van aparte porque son textos largos, y sirven cuando la consigna
+  cambió a mitad de la cursada y ya no coincide con la que está guardada hoy en la instancia.</p>
+  <p class="muted small">Cada persona aparece con un código estable (E… para estudiantes, D… para
+  docentes): el mismo código en distintas exportaciones es la misma persona, pero el código no
+  permite volver a ella.</p>
+</section>
+{% endblock %}

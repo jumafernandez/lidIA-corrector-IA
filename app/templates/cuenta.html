@@ -47,4 +47,28 @@
     <button type="submit" class="btn primary">Cambiar contraseña</button>
   </form>
 </section>
+
+{% if user.role == 'student' %}
+<section class="card" style="max-width: 480px">
+  <h2>Uso de tus entregas en investigación</h2>
+  <p class="muted small">El equipo del laboratorio estudia si las devoluciones automáticas ayudan a
+  aprender. Para eso necesitamos analizar entregas reales: qué te devolvió la IA, cuánto lo corrigió
+  después el equipo docente y si te resultó útil.</p>
+  <p class="muted small">Si aceptás, tu entrega se incluye <strong>sin tu nombre, tu DNI ni tu correo</strong>:
+  en su lugar va un código que no permite volver a vos. Si no aceptás, usás el sistema exactamente
+  igual y tus entregas quedan afuera del análisis. Podés cambiar de opinión cuando quieras y no
+  incide en tu nota.</p>
+  <form method="post" action="{{ base }}/cuenta/consentimiento">
+    <p>
+      {% if user.consent == 1 %}Hoy tu respuesta es <strong>sí, pueden usarlas</strong>.
+      {% elif user.consent == 0 %}Hoy tu respuesta es <strong>no, prefiero que no</strong>.
+      {% else %}Todavía no respondiste.{% endif %}
+    </p>
+    <div class="row-gap">
+      <button type="submit" name="consent" value="1" class="btn small primary">Sí, pueden usarlas</button>
+      <button type="submit" name="consent" value="0" class="btn small ghost">No, prefiero que no</button>
+    </div>
+  </form>
+</section>
+{% endif %}
 {% endblock %}

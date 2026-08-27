@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Programa · {{ course.materia }}{% endblock %}
+{% block content %}
+<p class="crumbs"><a href="{{ base }}/admin/cursos/{{ course.id }}">← {{ course.materia }} {{ course.etiqueta }}</a></p>
+<h1>Programa de la cursada</h1>
+<p class="muted">{{ course.materia }} <span class="pill pill-edicion">{{ course.etiqueta }}</span></p>
+
+<p class="muted small" style="max-width: 70ch">El programa es de <strong>esta cursada</strong>, no de la
+materia: cambia entre ediciones y con él cambian los contenidos, la bibliografía y el equipo docente.
+Lidia lo usa como contexto en todas las instancias de evaluación de la cursada, para situar sus
+comentarios en las unidades y la bibliografía que el estudiantado efectivamente cursó, y para no
+reclamar temas que el curso no cubrió. <strong>No es criterio de evaluación</strong>: el estándar sigue
+siendo la consigna y la rúbrica de cada instancia.</p>
+
+<form method="post" action="{{ base }}/admin/cursos/{{ course.id }}/programa">
+  <textarea name="programa" rows="24">{{ course.programa }}</textarea>
+  <div class="row-gap" style="margin-top: 12px">
+    <button type="submit" class="btn primary">Guardar programa</button>
+    <a class="btn ghost" href="{{ base }}/admin/cursos/{{ course.id }}">Volver sin guardar</a>
+  </div>
+</form>
+
+<link rel="stylesheet" href="{{ base }}/static/vendor/easymde.min.css">
+<script src="{{ base }}/static/vendor/easymde.min.js"></script>
+<script>
+new EasyMDE({
+  element: document.querySelector('textarea[name="programa"]'),
+  spellChecker: false,
+  status: false,
+  minHeight: '520px',
+  toolbar: ['bold', 'italic', 'heading', '|', 'unordered-list', 'ordered-list', 'quote', 'link', '|', 'preview', 'guide'],
+  forceSync: true,
+});
+</script>
+{% endblock %}

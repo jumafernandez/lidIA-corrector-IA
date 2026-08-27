@@ -111,6 +111,10 @@
       <label>Preguntas por devolución (0–10)
         <input name="max_preguntas" value="{{ assignment.max_preguntas }}">
       </label>
+      <label>Integrantes por grupo (1–8)
+        <input name="max_integrantes" value="{{ assignment.max_integrantes }}">
+        <span class="ayuda">1 = entrega individual. Con 2 o más, el estudiantado arma sus grupos y el cupo pasa a ser del grupo.</span>
+      </label>
       {% endif %}
     </div>
     <label style="font-weight: 400; margin-bottom: 0">

@@ -9,6 +9,22 @@
 
 <section class="card">
   <div class="row-between">
+    <h2>Programa de la cursada</h2>
+    <a class="btn small {{ 'primary' if not course.programa }}" href="{{ base }}/admin/cursos/{{ course.id }}/programa">{{ 'Editar programa' if course.programa else 'Cargar programa' }}</a>
+  </div>
+  {% if course.programa %}
+    <p class="muted small">Cargado ({{ course.programa|length }} caracteres). Lidia lo usa como contexto
+    en todas las instancias de esta cursada: sitúa sus comentarios en las unidades y la bibliografía que
+    se dieron, y no reclama temas que el curso no cubrió.</p>
+  {% else %}
+    <p class="muted small">Sin programa cargado. Sin él, Lidia corrige solo contra la consigna y la
+    rúbrica de cada instancia: no puede decir «esto lo vimos en la unidad 4» ni evitar sugerir temas
+    que esta cursada no dio.</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <div class="row-between">
     <h2>Instancias de evaluación</h2>
     <a class="btn small primary" href="{{ base }}/admin/cursos/{{ course.id }}/instancias/nueva">Nueva instancia</a>
   </div>
@@ -46,7 +62,17 @@
       Cursada abierta (admite entregas nuevas)
     </label>
   </div>
-  <p class="muted small">Al cerrarla, el estudiantado sigue viendo sus entregas y devoluciones, pero no puede presentar nada nuevo.</p>
+  <div class="grid2">
+    <label>Comienza
+      <input type="date" name="fecha_inicio" value="{{ course.fecha_inicio }}">
+    </label>
+    <label>Termina
+      <input type="date" name="fecha_fin" value="{{ course.fecha_fin }}">
+    </label>
+  </div>
+  <p class="muted small">Las fechas son informativas: no cierran nada por sí solas, pero sitúan cada entrega
+  dentro de la cursada, que es lo que después permite analizar cuándo entrega el estudiantado.</p>
+  <p class="muted small">Al cerrar la cursada, el estudiantado sigue viendo sus entregas y devoluciones, pero no puede presentar nada nuevo.</p>
   {% endif %}
   <p style="margin-bottom: 4px"><strong>Docentes de esta edición</strong></p>
   {% if user.role == 'admin' %}
@@ -75,6 +101,7 @@
     <span>
       <a class="btn small primary" href="{{ base }}/admin/estudiantes/nuevo?curso={{ course.id }}">Nuevo estudiante</a>
       <a class="btn small" href="{{ base }}/admin/estudiantes/importar?curso={{ course.id }}">Importar listado</a>
+      <a class="btn small" href="{{ base }}/admin/cursos/{{ course.id }}/notas.csv">Notas (CSV)</a>
       <a class="btn small" href="{{ base }}/admin/credenciales.csv?curso={{ course.id }}">Credenciales (CSV)</a>
     </span>
   </div>

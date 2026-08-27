@@ -4,6 +4,7 @@ import json
 import os
 import re
 import textwrap
+import time
 
 DEMO_NOTICE = "⚠️ **MODO DEMO** — no hay un modelo conectado (falta `LLM_API_KEY`). Esta devolución es un ejemplo fijo para probar el flujo."
 
@@ -81,6 +82,22 @@ REGLAS:
 """
 
 
+def _telemetria(resp, comenzo: float) -> dict:
+    """Tokens, latencia y motivo de corte de una llamada. Todo opcional: si el
+    proveedor no los informa, quedan en None y la entrega se guarda igual."""
+    uso = getattr(resp, "usage", None)
+    try:
+        motivo = resp.choices[0].finish_reason
+    except (AttributeError, IndexError):
+        motivo = None
+    return {
+        "tokens_in": getattr(uso, "prompt_tokens", None),
+        "tokens_out": getattr(uso, "completion_tokens", None),
+        "latencia_ms": int((time.monotonic() - comenzo) * 1000),
+        "finish_reason": motivo,
+    }
+
+
 def _bloque_items(cfg: dict) -> str:
     """Preguntas del examen con su respuesta esperada (o su opción correcta) y su puntaje."""
     partes = []
@@ -110,6 +127,13 @@ def _puntos(valor) -> str:
     return f"{txt} punto" + ("" if v == 1 else "s")
 
 
+def _recortar(texto: str, tope: int) -> str:
+    """Corta por el final avisando, para que un programa largo no desplace a la rúbrica."""
+    if len(texto) <= tope:
+        return texto
+    return texto[:tope].rsplit("\n", 1)[0] + "\n[…programa recortado por extensión…]"
+
+
 def _system_prompt(cfg: dict, profile: str, kind: str) -> str:
     tipo = cfg.get("tipo", "abierto")
     intro = f"""
@@ -117,12 +141,24 @@ def _system_prompt(cfg: dict, profile: str, kind: str) -> str:
     Ciencia de Datos & Inteligencia Artificial, Universidad Nacional de Luján). Estás corrigiendo en el curso
     «{cfg['curso']}», instancia de evaluación «{cfg['instancia']}». Tu tarea es dar una devolución formativa
     sobre la entrega de un estudiante, escrita en español rioplatense profesional y cercano.
-    Podés presentarte brevemente como Lidia en el cierre, sin exagerar el personaje.
+    Escribí dirigiéndote al estudiante en segunda persona. No firmes la devolución ni agregues una
+    línea final identificándote: la aplicación ya muestra quién la escribió.
 
     CONSIGNA DE LA ENTREGA:
     {cfg['consigna']}
     """
     parts = [textwrap.dedent(intro).strip()]
+    if cfg.get("programa", "").strip():
+        # El programa sitúa la devolución en lo que efectivamente se dio: permite decir
+        # «esto lo vimos en la unidad 4» en lugar de recomendar bibliografía al azar.
+        # No es criterio de evaluación: el estándar sigue siendo la rúbrica.
+        parts.append(
+            "PROGRAMA DE LA CURSADA (contexto: qué se enseñó, con qué bibliografía y en qué orden).\n"
+            "Usalo para situar tus comentarios en las unidades y la bibliografía que el estudiante "
+            "efectivamente cursó, y para no exigir ni sugerir temas que el curso no cubrió. "
+            "NO es criterio de evaluación: el estándar es la consigna y la rúbrica.\n"
+            + _recortar(cfg["programa"].strip(), 6000)
+        )
     if cfg.get("rubrica", "").strip():
         parts.append("RÚBRICA (criterios de evaluación):\n" + cfg["rubrica"].strip())
     if tipo in ("escrito", "choice"):
@@ -173,15 +209,22 @@ def _user_prompt(cfg: dict, first_name: str, work_text: str, truncated: bool) ->
     return f"{who}Entrega a evaluar:{note}\n\n---\n{work_text}\n---"
 
 
-def generate_feedback(cfg: dict, first_name: str, profile: str, work_text: str, kind: str, truncated: bool) -> tuple[str, str]:
-    """Devuelve (devolucion_md, modelo_usado). Lanza LLMError si el proveedor falla."""
+def generate_feedback(cfg: dict, first_name: str, profile: str, work_text: str, kind: str,
+                      truncated: bool) -> tuple[str, str, dict]:
+    """Devuelve (devolucion_md, modelo_usado, telemetria).
+
+    La telemetría (tokens, latencia, motivo de corte) se guarda con la entrega: es el
+    único registro propio de cuánto cuesta y cuánto tarda cada devolución. Lanza
+    LLMError si el proveedor falla.
+    """
     info = model_info()
     if not info["configured"]:
-        return _demo_feedback(cfg, first_name), "demo"
+        return _demo_feedback(cfg, first_name), "demo", {}
 
     from openai import OpenAI
 
     client = OpenAI(base_url=info["base_url"], api_key=os.environ["LLM_API_KEY"], timeout=180)
+    comenzo = time.monotonic()
     try:
         resp = client.chat.completions.create(
             model=info["model"],
@@ -197,7 +240,7 @@ def generate_feedback(cfg: dict, first_name: str, profile: str, work_text: str, 
     content = (resp.choices[0].message.content or "").strip()
     if not content:
         raise LLMError("El modelo devolvió una respuesta vacía.")
-    return content, info["model"]
+    return content, info["model"], _telemetria(resp, comenzo)
 
 
 def answer_question(cfg: dict, first_name: str, work_text: str, feedback_md: str, history: list, question: str) -> str:

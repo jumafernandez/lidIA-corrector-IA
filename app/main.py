@@ -1,6 +1,8 @@
 """LidIA — devoluciones formativas con IA. LICDIA · UNLu."""
 import csv
+import difflib
 import io
+import json
 import os
 import re
 from datetime import datetime, timezone
@@ -13,8 +15,9 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response, Streamin
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import auth
+from . import auth, investigacion
 from .db import (all_courses, assignment_cfg, assignment_items, can_access_edition,
+                 grupo_de, grupos_de_instancia, miembros_de,
                  course_editions, edition_assignments, edition_teachers, enroll, final_activa,
                  get_assignment, get_config, get_course, get_db, get_edition, init_db,
                  is_enrolled, items_puntaje_total, practicas_usadas, preguntas_usadas,
@@ -218,6 +221,24 @@ def cuenta_clave(
     return redirect("/cuenta", msg="Contraseña actualizada.")
 
 
+@app.post("/cuenta/consentimiento")
+def cuenta_consentimiento(request: Request, consent: str = Form("")):
+    """Opt-in explícito para que las entregas anonimizadas se usen en investigación educativa.
+
+    Se puede cambiar cuantas veces se quiera y no condiciona nada del cursado: quien
+    dice que no usa el sistema exactamente igual, y sus datos quedan fuera del export.
+    """
+    user = auth.current_user(request)
+    if not user:
+        return redirect("/login")
+    valor = 1 if consent == "1" else 0
+    with get_db() as db:
+        db.execute(
+            "UPDATE users SET consent = ?, consent_at = ? WHERE id = ?", (valor, utcnow(), user["id"])
+        )
+    return redirect("/cuenta", msg="Listo, guardamos tu decisión. Podés cambiarla cuando quieras.")
+
+
 AVATAR_MIMES = {"image/jpeg", "image/png", "image/webp"}
 MAX_AVATAR_BYTES = 1024 * 1024
 
@@ -326,17 +347,114 @@ def panel_instancia(request: Request, aid: int):
         cfg = get_config(db)
         usadas = practicas_usadas(db, user["id"], aid)
         final = final_activa(db, user["id"], aid)
-        entregas = db.execute(
-            "SELECT * FROM submissions WHERE user_id = ? AND assignment_id = ? ORDER BY id DESC",
-            (user["id"], aid),
-        ).fetchall()
+        g = grupo_de(db, user["id"], aid)
+        if g:
+            entregas = db.execute(
+                "SELECT s.*, u.full_name AS autor FROM submissions s JOIN users u ON u.id = s.user_id"
+                " WHERE s.assignment_id = ? AND s.user_id IN"
+                " (SELECT user_id FROM grupo_miembros WHERE grupo_id = ?) ORDER BY s.id DESC",
+                (aid, g["id"]),
+            ).fetchall()
+        else:
+            entregas = db.execute(
+                "SELECT *, NULL AS autor FROM submissions WHERE user_id = ? AND assignment_id = ? ORDER BY id DESC",
+                (user["id"], aid),
+            ).fetchall()
         items = assignment_items(db, aid)
+        grupo = grupo_de(db, user["id"], aid)
+        companeros = [m for m in miembros_de(db, grupo["id"]) if m["id"] != user["id"]] if grupo else []
+        grupo_cerrado = bool(grupo) and bool(db.execute(
+            "SELECT 1 FROM submissions WHERE assignment_id = ? AND user_id IN "
+            "(SELECT user_id FROM grupo_miembros WHERE grupo_id = ?)", (aid, grupo["id"])
+        ).fetchone())
     maxp = assignment["max_practicas"]
     return render(
         request, "panel.html", cfg=cfg, course=course, assignment=assignment,
         usadas=usadas, maxp=maxp, restantes=max(0, maxp - usadas), final=final,
         entregas=entregas, items=items, puntaje_total=items_puntaje_total(items),
+        grupo=grupo, companeros=companeros, grupo_cerrado=grupo_cerrado,
     )
+
+
+# ---------------------------------------------------------------- grupos de TP
+
+@app.post("/panel/instancia/{aid}/grupo")
+async def panel_grupo(request: Request, aid: int):
+    """El estudiante arma su grupo cargando los DNI de sus compañeros, o se va del grupo.
+
+    Un grupo no se puede tocar una vez que tiene entregas: el cupo y la devolución
+    ya son del conjunto, y cambiar quién lo integra reescribiría a quién le contaron.
+    """
+    user, resp = _require(request, "student")
+    if resp:
+        return resp
+    form = await request.form()
+    volver = f"/panel/instancia/{aid}"
+    with get_db() as db:
+        assignment = get_assignment(db, aid)
+        if not assignment or not assignment["active"]:
+            return redirect("/panel")
+        ed = get_edition(db, assignment["edition_id"])
+        if not ed["active"] or not is_enrolled(db, user["id"], ed["id"]):
+            return redirect("/panel")
+        if assignment["max_integrantes"] < 2:
+            return redirect(volver, err="Esta instancia es de entrega individual.")
+        if not user["active"]:
+            return redirect(volver, err="Tu usuario no está habilitado.")
+
+        actual = grupo_de(db, user["id"], aid)
+        if actual and db.execute(
+            "SELECT 1 FROM submissions WHERE assignment_id = ? AND user_id IN "
+            "(SELECT user_id FROM grupo_miembros WHERE grupo_id = ?)", (aid, actual["id"])
+        ).fetchone():
+            return redirect(volver, err="El grupo ya tiene entregas: para cambiarlo, hablá con el equipo docente.")
+
+        if form.get("action") == "salir":
+            if not actual:
+                return redirect(volver)
+            db.execute("DELETE FROM grupo_miembros WHERE grupo_id = ? AND user_id = ?", (actual["id"], user["id"]))
+            if not miembros_de(db, actual["id"]):
+                db.execute("DELETE FROM grupos WHERE id = ?", (actual["id"],))
+            return redirect(volver, msg="Saliste del grupo: volvés a entregar por tu cuenta.")
+
+        # armar o rehacer el grupo con los DNI que cargó
+        dnis = [d.strip() for d in (form.get("companeros") or "").replace(";", ",").replace("\n", ",").split(",")]
+        dnis = [re.sub(r"[.\s]", "", d) for d in dnis if d.strip()]
+        if not dnis:
+            return redirect(volver, err="Cargá el DNI de al menos un compañero o compañera.")
+
+        companeros, errores = [], []
+        for dni in dnis:
+            fila = db.execute("SELECT * FROM users WHERE login = ? AND role = 'student'", (dni,)).fetchone()
+            if not fila:
+                errores.append(f"{dni} no figura como estudiante")
+            elif fila["id"] == user["id"]:
+                continue
+            elif not is_enrolled(db, fila["id"], ed["id"]):
+                errores.append(f"{fila['full_name']} no está en esta cursada")
+            elif grupo_de(db, fila["id"], aid):
+                errores.append(f"{fila['full_name']} ya está en otro grupo")
+            else:
+                companeros.append(fila)
+        if errores:
+            return redirect(volver, err=" · ".join(errores))
+        if len(companeros) + 1 > assignment["max_integrantes"]:
+            return redirect(volver, err=f"El máximo es de {assignment['max_integrantes']} integrantes por grupo.")
+
+        if actual:
+            db.execute("DELETE FROM grupo_miembros WHERE grupo_id = ?", (actual["id"],))
+            gid = actual["id"]
+        else:
+            gid = db.execute(
+                "INSERT INTO grupos (assignment_id, created_at) VALUES (?, ?)", (aid, utcnow())
+            ).lastrowid
+        for u in [user, *companeros]:
+            db.execute(
+                "INSERT INTO grupo_miembros (grupo_id, user_id, assignment_id) VALUES (?, ?, ?)",
+                (gid, u["id"], aid),
+            )
+        nombres = ", ".join(u["full_name"] for u in companeros)
+    return redirect(volver, msg=f"Grupo armado con {nombres}. El cupo y la devolución son del grupo.")
 
 
 @app.post("/entregar")
@@ -392,8 +510,9 @@ async def entregar(
     except ExtractionError as exc:
         return redirect(back, err=str(exc))
 
+    tele = {}
     try:
-        feedback, model = generate_feedback(
+        feedback, model, tele = generate_feedback(
             cfg, first_name(user["full_name"]), user["profile"] or "", work_text, kind, truncated
         )
         status = "pendiente" if kind == "final" else "ok"
@@ -406,12 +525,17 @@ async def entregar(
             return redirect(back, err=f"No se pudo generar la devolución (no se consumió tu intento). {exc}")
 
     with get_db() as db:
+        grupo = grupo_de(db, user["id"], assignment_id)
         cur = db.execute(
             "INSERT INTO submissions (user_id, assignment_id, kind, status, original_filename, work_text,"
-            " text_chars, truncated, ai_feedback_md, model_used, error, created_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " text_chars, truncated, ai_feedback_md, model_used, error, created_at,"
+            " grupo_id, cfg_snapshot, tokens_in, tokens_out, latencia_ms, finish_reason)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (user["id"], assignment_id, kind, status, filename, work_text, len(work_text), int(truncated),
-             feedback, model, error, utcnow()),
+             feedback, model, error, utcnow(),
+             grupo["id"] if grupo else None, json.dumps(cfg, ensure_ascii=False),
+             tele.get("tokens_in"), tele.get("tokens_out"), tele.get("latencia_ms"),
+             tele.get("finish_reason")),
         )
         sid = cur.lastrowid
     if kind == "final":
@@ -506,13 +630,22 @@ def entrega(request: Request, sid: int):
             return redirect("/")
         if user["role"] == "student":
             if sub["user_id"] != user["id"]:
-                return redirect("/")
+                g = grupo_de(db, user["id"], sub["assignment_id"])
+                mismo_grupo = bool(g) and bool(db.execute(
+                    "SELECT 1 FROM grupo_miembros WHERE grupo_id = ? AND user_id = ?",
+                    (g["id"], sub["user_id"]),
+                ).fetchone()) if g else False
+                if not mismo_grupo:
+                    return redirect("/")
         elif not can_access_edition(db, user, course["id"]):
             return redirect("/")
         qs = db.execute(
             "SELECT * FROM questions WHERE submission_id = ? ORDER BY id", (sid,)
         ).fetchall()
         owner = db.execute("SELECT * FROM users WHERE id = ?", (sub["user_id"],)).fetchone()
+        # primera vez que el estudiante abre su devolución: dice si la leyó, y cuándo
+        if user["role"] == "student" and not sub["first_viewed_at"] and sub["ai_feedback_md"]:
+            db.execute("UPDATE submissions SET first_viewed_at = ? WHERE id = ?", (utcnow(), sub["id"]))
     maxq = assignment["max_preguntas"]
     puede_preguntar = (
         user["role"] == "student" and user["active"] and sub["kind"] == "practica" and len(qs) < maxq
@@ -521,6 +654,36 @@ def entrega(request: Request, sid: int):
         request, "entrega.html", sub=sub, owner=owner, course=course, assignment=assignment,
         qs=qs, maxq=maxq, q_restantes=max(0, maxq - len(qs)), puede_preguntar=puede_preguntar,
     )
+
+
+@app.post("/entrega/{sid}/valorar")
+async def valorar(request: Request, sid: int):
+    """Le sirvió o no le sirvió. Opcional, sin fricción y sin bloquear nada."""
+    user, resp = _require(request, "student")
+    if resp:
+        return resp
+    form = await request.form()
+    try:
+        valor = int(form.get("valor", "0"))
+    except ValueError:
+        valor = 0
+    if valor not in (1, -1):
+        return redirect(f"/entrega/{sid}")
+    with get_db() as db:
+        sub = db.execute(
+            "SELECT * FROM submissions WHERE id = ? AND user_id = ?", (sid, user["id"])
+        ).fetchone()
+        if not sub:
+            return redirect("/panel")
+        if sub["valoracion"] is not None:
+            # vale la primera respuesta: es la reacción a la devolución recién leída,
+            # y es la que el formulario ofrece una sola vez
+            return redirect(f"/entrega/{sid}")
+        db.execute(
+            "UPDATE submissions SET valoracion = ?, valoracion_texto = ?, valoracion_at = ? WHERE id = ?",
+            (valor, (form.get("comentario") or "").strip()[:1000], utcnow(), sid),
+        )
+    return redirect(f"/entrega/{sid}", msg="Gracias: tu valoración nos ayuda a mejorar las devoluciones.")
 
 
 @app.post("/entrega/{sid}/pregunta")
@@ -632,10 +795,13 @@ def admin_final(request: Request, sid: int):
 
 
 @app.post("/admin/final/{sid}")
-def admin_final_post(request: Request, sid: int, action: str = Form(...), feedback: str = Form("")):
+async def admin_final_post(request: Request, sid: int):
     user, resp = _require(request, *STAFF)
     if resp:
         return resp
+    form = await request.form()
+    action = form.get("action", "")
+    feedback = form.get("feedback", "")
     with get_db() as db:
         sub, assignment, course = _load_submission(db, sid)
         if not sub or sub["kind"] != "final" or not can_access_edition(db, user, course["id"]):
@@ -650,10 +816,26 @@ def admin_final_post(request: Request, sid: int, action: str = Form(...), feedba
         if action == "aprobar":
             if not feedback.strip():
                 return redirect(f"/admin/final/{sid}", err="La devolución no puede quedar vacía.")
+            nota = None
+            crudo = (form.get("nota") or "").strip().replace(",", ".")
+            if crudo:
+                try:
+                    nota = float(crudo)
+                except ValueError:
+                    return redirect(f"/admin/final/{sid}", err="La nota tiene que ser un número (0 a 10).")
+                if not (0 <= nota <= 10):
+                    return redirect(f"/admin/final/{sid}", err="La nota va de 0 a 10.")
+            # cuánto se editó la propuesta de la IA: 0 = firmada tal cual, 1 = reescrita entera.
+            # Es la medición central del sistema y se calcula una sola vez, acá.
+            propuesta = sub["ai_feedback_md"] or ""
+            firmada = feedback.strip()
+            ratio = None
+            if propuesta:
+                ratio = round(1 - difflib.SequenceMatcher(None, propuesta, firmada).ratio(), 4)
             db.execute(
-                "UPDATE submissions SET status = 'aprobada', final_feedback_md = ?, reviewed_by = ?, reviewed_at = ? "
-                "WHERE id = ?",
-                (feedback.strip(), user["id"], utcnow(), sid),
+                "UPDATE submissions SET status = 'aprobada', final_feedback_md = ?, nota = ?,"
+                " edit_ratio = ?, reviewed_by = ?, reviewed_at = ? WHERE id = ?",
+                (firmada, nota, ratio, user["id"], utcnow(), sid),
             )
     if action == "aprobar":
         sent, detail = send_feedback_email(owner["email"], first_name(owner["full_name"]), feedback.strip())
@@ -886,8 +1068,9 @@ async def admin_curso_post(request: Request, cid: int):
                     )
                 db.execute("UPDATE course_editions SET etiqueta = ? WHERE id = ?", (etiqueta, cid))
             db.execute(
-                "UPDATE course_editions SET active = ? WHERE id = ?",
-                (1 if form.get("active") == "1" else 0, cid),
+                "UPDATE course_editions SET active = ?, fecha_inicio = ?, fecha_fin = ? WHERE id = ?",
+                (1 if form.get("active") == "1" else 0,
+                 (form.get("fecha_inicio") or "").strip(), (form.get("fecha_fin") or "").strip(), cid),
             )
             elegidos = {int(x) for x in form.getlist("docentes")}
             db.execute("DELETE FROM course_teachers WHERE edition_id = ?", (cid,))
@@ -1029,6 +1212,32 @@ def admin_instancia_crear(request: Request, cid: int, name: str = Form(...), tip
         )
         aid = cur.lastrowid
     return redirect(f"/admin/instancias/{aid}", msg="Instancia creada — completá el material de corrección y activala.")
+
+
+@app.get("/admin/cursos/{cid}/programa", response_class=HTMLResponse)
+def admin_curso_programa(request: Request, cid: int):
+    user, resp = _require(request, *STAFF)
+    if resp:
+        return resp
+    with get_db() as db:
+        curso = get_edition(db, cid)
+        if not curso or not can_access_edition(db, user, cid):
+            return redirect("/admin/cursos")
+    return render(request, "admin_curso_programa.html", course=curso)
+
+
+@app.post("/admin/cursos/{cid}/programa")
+async def admin_curso_programa_post(request: Request, cid: int):
+    user, resp = _require(request, *STAFF)
+    if resp:
+        return resp
+    form = await request.form()
+    with get_db() as db:
+        if not get_edition(db, cid) or not can_access_edition(db, user, cid):
+            return redirect("/admin/cursos")
+        db.execute("UPDATE course_editions SET programa = ? WHERE id = ?",
+                   ((form.get("programa") or "").strip(), cid))
+    return redirect(f"/admin/cursos/{cid}", msg="Programa guardado.")
 
 
 @app.get("/admin/cursos/{cid}/duplicar", response_class=HTMLResponse)
@@ -1227,10 +1436,12 @@ async def admin_instancia_post(request: Request, aid: int):
         try:
             mp = int(form.get("max_practicas", assignment["max_practicas"]))
             mq = int(form.get("max_preguntas", assignment["max_preguntas"]))
-            if not (1 <= mp <= 10 and 0 <= mq <= 10):
+            mi = int(form.get("max_integrantes", assignment["max_integrantes"]))
+            if not (1 <= mp <= 10 and 0 <= mq <= 10 and 1 <= mi <= 8):
                 raise ValueError
         except ValueError:
-            return redirect(f"/admin/instancias/{aid}", err="Los cupos deben ser números (prácticas 1–10, preguntas 0–10).")
+            return redirect(f"/admin/instancias/{aid}",
+                            err="Los cupos deben ser números (prácticas 1–10, preguntas 0–10, integrantes 1–8).")
         name = (form.get("name") or "").strip() or assignment["name"]
         if name != assignment["name"] and db.execute(
             "SELECT 1 FROM assignments WHERE edition_id = ? AND name = ? AND id != ?", (cid, name, aid)
@@ -1322,9 +1533,9 @@ async def admin_instancia_post(request: Request, aid: int):
                 )
         db.execute(
             "UPDATE assignments SET name = ?, active = ?, tipo = ?, consigna = ?, rubrica = ?, respuestas = ?,"
-            " prompt_extra = ?, max_practicas = ?, max_preguntas = ? WHERE id = ?",
+            " prompt_extra = ?, max_practicas = ?, max_preguntas = ?, max_integrantes = ? WHERE id = ?",
             (name, active, tipo, consigna, rubrica, respuestas,
-             (form.get("prompt_extra") or "").strip(), mp, mq, aid),
+             (form.get("prompt_extra") or "").strip(), mp, mq, mi, aid),
         )
     msg = "Instancia guardada."
     if extraidos:
@@ -1743,6 +1954,71 @@ def admin_ficha_post(
             db.execute("DELETE FROM enrollments WHERE user_id = ? AND edition_id = ?", (uid, curso_id))
             return redirect(f"/admin/estudiantes/{uid}", msg="Inscripción quitada.")
     return redirect(f"/admin/estudiantes/{uid}")
+
+
+@app.get("/admin/cursos/{cid}/notas.csv")
+def admin_notas_csv(request: Request, cid: int):
+    """Las notas de la edición, listas para pegar en la planilla de la universidad."""
+    user, resp = _require(request, *STAFF)
+    if resp:
+        return resp
+    with get_db() as db:
+        ed = get_edition(db, cid)
+        if not ed or not can_access_edition(db, user, cid):
+            return redirect("/admin/cursos")
+        filas = db.execute(
+            "SELECT u.login, u.full_name, a.name AS instancia, s.nota, s.status, s.reviewed_at"
+            " FROM enrollments e"
+            " JOIN users u ON u.id = e.user_id"
+            " JOIN assignments a ON a.edition_id = e.edition_id"
+            " LEFT JOIN submissions s ON s.user_id = u.id AND s.assignment_id = a.id"
+            "   AND s.kind = 'final' AND s.status = 'aprobada'"
+            " WHERE e.edition_id = ? ORDER BY u.full_name, a.id",
+            (cid,),
+        ).fetchall()
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["dni", "apellido_y_nombre", "materia", "edicion", "instancia", "nota", "corregida_el"])
+    for r in filas:
+        w.writerow([
+            r["login"], r["full_name"], ed["materia"], ed["etiqueta"], r["instancia"],
+            "" if r["nota"] is None else f"{r['nota']:g}",
+            fecha(r["reviewed_at"]) if r["reviewed_at"] else "",
+        ])
+    buf.seek(0)
+    nombre = f"notas-{ed['materia'][:30].strip().replace(' ', '-')}-{ed['etiqueta'].replace(' ', '-')}.csv"
+    return StreamingResponse(
+        iter([buf.getvalue()]), media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f"attachment; filename={nombre}"},
+    )
+
+
+# ---------------------------------------------------------------- investigación
+
+@app.get("/admin/investigacion", response_class=HTMLResponse)
+def admin_investigacion(request: Request):
+    user, resp = _require(request, "admin")
+    if resp:
+        return resp
+    with get_db() as db:
+        datos = investigacion.resumen(db)
+    return render(request, "admin_investigacion.html", r=datos, campos=investigacion.CAMPOS)
+
+
+@app.get("/admin/investigacion/{archivo}.csv")
+def admin_investigacion_csv(request: Request, archivo: str):
+    user, resp = _require(request, "admin")
+    if resp:
+        return resp
+    if archivo not in ("entregas", "configuraciones"):
+        return redirect("/admin/investigacion")
+    with get_db() as db:
+        contenido = (investigacion.csv_datos(db) if archivo == "entregas"
+                     else investigacion.csv_configuraciones(db))
+    return StreamingResponse(
+        iter([contenido]), media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f"attachment; filename=lidia-{archivo}.csv"},
+    )
 
 
 @app.get("/admin/credenciales.csv")

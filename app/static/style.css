@@ -358,3 +358,16 @@ tr.grupo th {
 tbody tr.grupo:first-child th { padding-top: 2px; }
 .acciones { white-space: nowrap; display: flex; gap: 6px; }
 .card-archivada { opacity: .8; border-left: 3px solid var(--line); }
+
+/* valoración del estudiante */
+.valoracion { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 14px; }
+.valoracion input[name="comentario"] { max-width: 420px; }
+
+/* cifras del panel de investigación */
+.cifras { display: flex; flex-wrap: wrap; gap: 10px; margin: 6px 0 12px; }
+.cifra {
+  flex: 1 1 96px; min-width: 96px; padding: 12px 14px;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--bg);
+}
+.cifra strong { display: block; font-size: 1.5rem; line-height: 1.2; color: var(--primary); font-family: var(--font-title); }
+.cifra span { display: block; font-size: .78rem; color: var(--muted); margin-top: 2px; }
