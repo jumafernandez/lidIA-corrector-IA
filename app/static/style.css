@@ -35,10 +35,17 @@ body {
 /* ---------- barra superior ---------- */
 .topbar { background: linear-gradient(120deg, #0a4d54, #0e6b74 55%, #12808b); color: #fff; border-bottom: 3px solid var(--amber); }
 .topbar-in { display: flex; align-items: center; gap: 14px; padding: 12px 20px; flex-wrap: wrap; }
-.brand, .brand:visited { font-family: var(--font-title); font-size: 1.45rem; font-weight: 800; color: #fff; -webkit-text-fill-color: #fff; text-decoration: none; letter-spacing: .4px; display: flex; align-items: center; gap: 8px; }
+.brand, .brand:visited { font-family: var(--font-title); font-size: 1.45rem; font-weight: 800; color: #fff; -webkit-text-fill-color: #fff; text-decoration: none; letter-spacing: .4px; display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+/* todo el bloque de identidad lleva al inicio; el hover lo hace evidente */
+.brand:hover .brand-txt, .brand:focus-visible .brand-txt { color: var(--amber); -webkit-text-fill-color: var(--amber); }
+.brand:hover .brand-sub { opacity: 1; }
+.brand:focus-visible { outline: 2px solid var(--amber); outline-offset: 4px; border-radius: 6px; }
 .brand-txt b { color: var(--amber); -webkit-text-fill-color: var(--amber); }
 .brand .lidia { width: 34px; height: auto; }
-.brand-sub { font-family: var(--font-title); font-size: .74rem; font-weight: 600; letter-spacing: .4px; opacity: .8; flex: 1; min-width: 220px; }
+.brand-sub { font-family: var(--font-title); font-size: .74rem; font-weight: 600; letter-spacing: .4px;
+  opacity: .8; color: #fff; -webkit-text-fill-color: #fff; margin-left: 6px; transition: opacity .15s;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+@media (max-width: 1100px) { .brand-sub { display: none; } }
 .topbar nav { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
 .topbar nav a, .topbar nav a:visited { font-family: var(--font-title); color: #e8eef5; -webkit-text-fill-color: #e8eef5; text-decoration: none; font-weight: 600; font-size: .88rem; }
 .topbar nav a:hover { color: var(--amber); -webkit-text-fill-color: var(--amber); }
@@ -91,7 +98,11 @@ body {
 .linklike:hover { color: var(--amber); }
 
 /* ---------- contenido ---------- */
-main { padding: 26px 20px 10px; }
+/* <main> lleva también la clase .wrap, que define padding: 0 20px. Por especificidad la
+   clase le gana al selector de elemento, así que el padding de arriba hay que ponerlo
+   con la misma fuerza o no se aplica nunca. */
+main.wrap { padding: 40px 20px 10px; }
+main.wrap > :first-child { margin-top: 0; }
 h1, h2, h3 { font-family: var(--font-title); }
 h1 { font-size: 1.5rem; font-weight: 800; margin: 6px 0 14px; color: var(--primary); }
 h2 { font-size: 1.05rem; font-weight: 700; margin: 0 0 10px; color: var(--primary); }
@@ -103,7 +114,7 @@ h2 { font-size: 1.05rem; font-weight: 700; margin: 0 0 10px; color: var(--primar
 @media (max-width: 800px) { .grid2 { grid-template-columns: 1fr; } }
 .muted { color: var(--muted); }
 .small { font-size: .85rem; }
-.crumbs { margin: 0 0 4px; font-family: var(--font-title); font-size: .85rem; }
+.crumbs { margin: 0 0 12px; font-family: var(--font-title); font-size: .85rem; }
 .crumbs a, .crumbs a:visited { color: #6c757d; -webkit-text-fill-color: #6c757d; text-decoration: none; font-weight: 600; }
 .crumbs a:hover { color: var(--primary); -webkit-text-fill-color: var(--primary); }
 main a, main a:visited, .foot a, .foot a:visited { color: #0e6b74; -webkit-text-fill-color: #0e6b74; }
@@ -124,15 +135,18 @@ main a:hover, .foot a:hover { color: #0a4d54; -webkit-text-fill-color: #0a4d54; 
 
 /* ---------- flash y pills ---------- */
 .flash {
-  display: flex; align-items: flex-start; gap: 12px; margin-top: 14px;
+  /* No es flex a propósito: con flex, cada <strong> o <code> del mensaje se vuelve
+     un ítem con su propio gap y el texto se desarma. El icono va posicionado. */
+  position: relative; margin-top: 14px;
   border: 1px solid; border-left-width: 5px; border-radius: 10px;
-  padding: 14px 16px; margin-bottom: 18px; font-size: .95rem;
+  padding: 14px 16px 14px 48px; margin-bottom: 18px; font-size: .95rem; line-height: 1.55;
   background: #fff; box-shadow: 0 2px 10px rgba(10, 77, 84, .08);
   animation: flash-in .3s ease;
 }
 .flash::before {
+  position: absolute; left: 16px; top: 15px;
   font-family: var(--font-title); font-weight: 800; font-size: .85rem;
-  flex-shrink: 0; width: 22px; height: 22px; margin-top: 1px; border-radius: 50%;
+  width: 22px; height: 22px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center; color: #fff;
 }
 .flash.ok { border-color: #b9dfca; border-left-color: var(--ok-ink); color: #14532d; }
@@ -356,7 +370,8 @@ tr.grupo th {
   padding: 18px 10px 6px; border-bottom: 1px solid var(--line);
 }
 tbody tr.grupo:first-child th { padding-top: 2px; }
-.acciones { white-space: nowrap; display: flex; gap: 6px; }
+.acciones { white-space: nowrap; display: flex; gap: 6px; align-items: center; }
+.acciones form.inline { display: contents; }
 .card-archivada { opacity: .8; border-left: 3px solid var(--line); }
 
 /* valoración del estudiante */
@@ -378,3 +393,69 @@ tbody tr.grupo:first-child th { padding-top: 2px; }
   background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
   padding: 12px 14px; font-size: .85rem; line-height: 1.5;
 }
+
+/* explicación plegada detrás de un icono: la info está, pero no pesa en la pantalla */
+details.info { display: inline-block; position: relative; vertical-align: middle; margin-left: 6px; }
+details.info > summary {
+  list-style: none; cursor: help; user-select: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 17px; height: 17px; border-radius: 50%;
+  border: 1px solid var(--primary); color: var(--primary); background: #fff;
+  font-family: var(--font-title); font-size: .68rem; font-weight: 700; line-height: 1;
+}
+details.info > summary::-webkit-details-marker { display: none; }
+details.info > summary::after { content: "i"; }
+details.info > summary:hover,
+details.info[open] > summary { background: var(--primary); color: #fff; }
+details.info > summary:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.info-panel {
+  position: absolute; z-index: 30; left: 0; top: calc(100% + 6px);
+  width: min(340px, 78vw); padding: 10px 12px;
+  background: #fff; border: 1px solid var(--line); border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .12);
+  font-family: var(--font-body); font-size: .82rem; font-weight: 400; line-height: 1.5;
+  color: var(--ink); white-space: normal; text-align: left;
+}
+/* cerca del borde derecho el panel se ancla del otro lado */
+.info-panel.izq { left: auto; right: 0; }
+
+/* textarea de verificación de un texto extraído: se lee como documento, no como campo */
+textarea.crudo-edit { font-size: .85rem; line-height: 1.55; }
+
+/* marca de modo de prueba de correo: discreta pero permanente en la barra */
+.topbar nav a.marca-prueba, .topbar nav a.marca-prueba:visited {
+  font-size: .72rem; font-weight: 700; letter-spacing: .3px;
+  background: var(--amber); color: #4a3000; -webkit-text-fill-color: #4a3000;
+  padding: 3px 9px; border-radius: 999px; white-space: nowrap;
+}
+.topbar nav a.marca-prueba:hover { background: #fff; color: #7c4a03; -webkit-text-fill-color: #7c4a03; }
+
+/* inicio */
+.saludo { display: flex; align-items: center; gap: 18px; margin-bottom: 22px; }
+.saludo .lidia { width: 64px; height: auto; flex-shrink: 0; }
+.saludo h1 { margin: 0 0 2px; }
+.saludo p { margin: 0; }
+.tarjetas { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+.tarjeta {
+  display: flex; flex-direction: column; gap: 5px; align-items: flex-start;
+  padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--bg); text-decoration: none; transition: border-color .15s, transform .15s;
+}
+.tarjeta:hover { border-color: var(--primary); transform: translateY(-1px); }
+.tarjeta strong { font-family: var(--font-title); color: var(--primary); line-height: 1.3; }
+
+/* Selector de archivo: el botón nativo del navegador no se puede estilar, pero sí
+   la parte que lo lanza. Aparece en 13 lugares de la app, así que va acá y no en cada uno. */
+/* El input real queda oculto: lo dispara el botón de .archivo, que sí está en castellano.
+   Si el JavaScript no corriera, el input vuelve a verse y sigue funcionando. */
+.archivo { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.archivo input[type="file"] { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.archivo-nombre { word-break: break-all; }
+.archivo-nombre.elegido { color: var(--ink); font-weight: 600; }
+
+/* páginas de ajustes: tarjetas que se acomodan al ancho en vez de una columna flaca */
+.ajustes-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); align-items: start; }
+.ajustes-grid .card { margin: 0; }
+.foto-fila { display: flex; align-items: center; gap: 16px; }
+.foto-fila .avatar-grande { flex-shrink: 0; }
+.foto-acciones { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }

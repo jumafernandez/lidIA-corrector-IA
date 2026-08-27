@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_ui.html" import info %}
 {% block title %}{{ doc.full_name }}{% endblock %}
 {% block content %}
 <p class="crumbs"><a href="{{ base }}/admin/docentes">← Docentes</a></p>
@@ -53,6 +54,6 @@ entregásela por un canal seguro. Deja de mostrarse cuando la cambie desde su cu
     </form>
     {% endif %}
   </div>
-  <p class="muted small">{% if doc.role == 'admin' %}La coordinación no se puede deshabilitar desde acá.{% else %}Un docente deshabilitado no puede ingresar, pero conserva sus cursos asignados.{% endif %}</p>
+  {{ info("La coordinación no se puede deshabilitar desde acá." if doc.role == 'admin' else "Un docente deshabilitado no puede ingresar, pero conserva sus cursos asignados. Eliminarlo solo es posible si no firmó ninguna corrección final: su firma es parte del historial.") }}
 </section>
 {% endblock %}

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_ui.html" import info %}
 {% from "_lidia.html" import lidia %}
 {% block title %}{{ assignment.name }} · {{ course.name }}{% endblock %}
 {% block content %}
@@ -94,6 +95,12 @@
 </section>
 {% endif %}
 
+{% if not ventana_abierta %}
+<div class="flash warn">{{ motivo_cierre }} Podés seguir viendo lo que entregaste y sus devoluciones.</div>
+{% elif assignment.fecha_cierre %}
+<p class="muted small">Plazo de entrega: hasta el {{ assignment.fecha_cierre|fecha_corta }}, inclusive.</p>
+{% endif %}
+
 {% if assignment.tipo != 'choice' %}
 <section class="card">
   <div class="row-between">
@@ -103,7 +110,7 @@
   <p class="muted">Cada devolución evalúa una <strong>entrega completa</strong> contra la rúbrica. Usalas como si presentaras de verdad:
   una entrega inmadura también consume el intento. Sobre cada devolución podés hacer hasta {{ assignment.max_preguntas }} preguntas aclaratorias.</p>
 
-  {% if user.active and restantes > 0 %}
+  {% if user.active and restantes > 0 and ventana_abierta %}
   <form method="post" action="{{ base }}/entregar" enctype="multipart/form-data"
         data-confirm="Esto consume 1 de tus {{ restantes }} devoluciones de práctica restantes. ¿Presentás esta versión?"
         data-lidia="Lidia está leyendo tu trabajo"
@@ -111,14 +118,15 @@
         data-aviso="Vas a entregar sin adjuntar tu propuesta aprobada. Lidia va a corregir todo lo demás, pero no va a poder evaluar si el trabajo es coherente con lo que propusiste, y la entrega queda marcada como entregada sin propuesta. ¿Seguís igual?"{% endif %}>
     <input type="hidden" name="kind" value="practica">
     <input type="hidden" name="assignment_id" value="{{ assignment.id }}">
+    {% if assignment.modalidad != 'papel' %}
     <label>Archivo (PDF, DOCX, TXT o MD)
       <input type="file" name="archivo" accept=".pdf,.docx,.txt,.md">
     </label>
+    {% endif %}
     {% if assignment.pide_propuesta %}
     <label>Tu propuesta aprobada (PDF, DOCX, TXT o MD)
       <input type="file" name="propuesta" accept=".pdf,.docx,.txt,.md">
-      <span class="ayuda">Es la propuesta que ya te aprobó el equipo docente. Lidia la usa para ver si el
-      trabajo hace lo que prometiste, y si se corrió del alcance, si lo explicás.</span>
+      {{ info("Es la propuesta que ya te aprobó el equipo docente. Lidia la usa para ver si el trabajo hace lo que prometiste, y si se corrió del alcance, si lo explicás.") }}
     </label>
     {% endif %}
     <details class="alt">
@@ -127,7 +135,7 @@
     </details>
     <button type="submit" class="btn primary">Pedir devolución</button>
   </form>
-  {% if assignment.tipo == 'escrito' %}
+  {% if assignment.modalidad != 'digital' %}
   <details class="alt">
     <summary>📷 …o subí fotos de tu examen resuelto en papel</summary>
     <form method="post" action="{{ base }}/entregar/fotos" enctype="multipart/form-data"
@@ -141,7 +149,7 @@
     </form>
   </details>
   {% endif %}
-  {% elif user.active %}
+  {% elif user.active and ventana_abierta %}
     <p class="muted">Usaste todas tus devoluciones de práctica. Queda la entrega final.</p>
   {% endif %}
 </section>
@@ -166,7 +174,7 @@
     <p>Tu entrega final del {{ final.created_at|fecha }} hs
       {% if final.status == 'aprobada' %} ya tiene la devolución del equipo docente.{% else %} está siendo revisada por el equipo docente.{% endif %}
       <a href="{{ base }}/entrega/{{ final.id }}">Ver detalle</a></p>
-  {% elif user.active %}
+  {% elif user.active and ventana_abierta %}
     {% if assignment.tipo == 'choice' %}
       <p class="muted">Tenés una <strong>única oportunidad de entrega</strong>. La corrección la revisa y la firma el equipo docente.</p>
     {% else %}
@@ -179,14 +187,15 @@
           data-aviso="Vas a entregar sin adjuntar tu propuesta aprobada. Lidia va a corregir todo lo demás, pero no va a poder evaluar si el trabajo es coherente con lo que propusiste, y la entrega queda marcada como entregada sin propuesta. ¿Seguís igual?"{% endif %}>
       <input type="hidden" name="kind" value="final">
       <input type="hidden" name="assignment_id" value="{{ assignment.id }}">
+      {% if assignment.modalidad != 'papel' %}
       <label>Archivo (PDF, DOCX, TXT o MD)
         <input type="file" name="archivo" accept=".pdf,.docx,.txt,.md">
       </label>
+      {% endif %}
       {% if assignment.pide_propuesta %}
       <label>Tu propuesta aprobada (PDF, DOCX, TXT o MD)
         <input type="file" name="propuesta" accept=".pdf,.docx,.txt,.md">
-        <span class="ayuda">Es la propuesta que ya te aprobó el equipo docente. Lidia la usa para ver si el
-        trabajo hace lo que prometiste, y si se corrió del alcance, si lo explicás.</span>
+        {{ info("Es la propuesta que ya te aprobó el equipo docente. Lidia la usa para ver si el trabajo hace lo que prometiste, y si se corrió del alcance, si lo explicás.") }}
       </label>
       {% endif %}
       <details class="alt">
@@ -195,7 +204,7 @@
       </details>
       <button type="submit" class="btn accent">{{ 'Entregar' if assignment.tipo == 'choice' else 'Marcar como entrega final' }}</button>
     </form>
-    {% if assignment.tipo in ('escrito', 'choice') %}
+    {% if assignment.modalidad != 'digital' %}
     <details class="alt">
       <summary>📷 …o subí fotos de tu examen resuelto en papel</summary>
       <form method="post" action="{{ base }}/entregar/fotos" enctype="multipart/form-data"

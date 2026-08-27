@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_ui.html" import info %}
 {% block title %}Nueva edición{% endblock %}
 {% block content %}
 <p class="crumbs"><a href="{{ base }}/admin/cursos">← Cursos</a></p>
@@ -40,13 +41,14 @@ contracursada. Cada una tiene sus estudiantes, sus docentes y sus instancias.</p
 
   {% if duplicables %}
   <hr style="border: none; border-top: 1px solid var(--line); margin: 18px 0">
-  <p style="margin-bottom: 6px"><strong>¿Estás repitiendo una cursada anterior?</strong></p>
+  <p style="margin-bottom: 6px"><strong>¿Estás repitiendo una cursada anterior?</strong>
+  {{ info("Te llevás las instancias ya armadas con su material de corrección. Los estudiantes y las entregas no se copian.") }}</p>
   <div class="row-gap">
     {% for d in duplicables %}
       <a class="btn small ghost" href="{{ base }}/admin/cursos/{{ d.id }}/duplicar">Duplicar {{ d.nombre }}</a>
     {% endfor %}
   </div>
-  <p class="muted small">Te llevás las instancias ya armadas con su material de corrección. Los estudiantes y las entregas no se copian.</p>
+
   {% endif %}
 </section>
 

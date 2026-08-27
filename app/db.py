@@ -3,6 +3,7 @@ import os
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(os.path.dirname(__file__)), "data"))
 DB_PATH = os.path.join(DATA_DIR, "lidia.db")
@@ -262,6 +263,34 @@ def init_db():
             # todas las instancias de evaluación de esa cursada.
             db.execute("ALTER TABLE course_editions ADD COLUMN programa TEXT DEFAULT ''")
 
+        cols = {r["name"] for r in db.execute("PRAGMA table_info(course_editions)")}
+        if "programa_archivo" not in cols:
+            # 008 — El programa entra como documento (el que ya aprobó el Consejo), no se
+            # tipea acá: se guarda el texto extraído, que el equipo docente verifica, junto
+            # con el nombre del archivo del que salió.
+            db.execute("ALTER TABLE course_editions ADD COLUMN programa_archivo TEXT DEFAULT ''")
+
+        cols = {r["name"] for r in db.execute("PRAGMA table_info(assignments)")}
+        if "modalidad" not in cols:
+            # 010 — Cómo se entrega (digital, foto del papel, o ambas) y la ventana de
+            # entrega. Las fechas sí cierran: un plazo que no cierra no es un plazo.
+            # Vacías = sin restricción, que es como venía funcionando.
+            db.execute(
+                "ALTER TABLE assignments ADD COLUMN modalidad TEXT NOT NULL DEFAULT 'ambos'"
+                " CHECK (modalidad IN ('digital', 'papel', 'ambos'))"
+            )
+            db.execute("ALTER TABLE assignments ADD COLUMN fecha_apertura TEXT DEFAULT ''")
+            db.execute("ALTER TABLE assignments ADD COLUMN fecha_cierre TEXT DEFAULT ''")
+            # un trabajo abierto se entrega digital salvo que alguien diga lo contrario
+            db.execute("UPDATE assignments SET modalidad = 'digital' WHERE tipo = 'abierto'")
+
+        cols = {r["name"] for r in db.execute("PRAGMA table_info(submissions)")}
+        if "cargada_por" not in cols:
+            # 009 — El examen en papel lo puede subir el equipo docente por el estudiante
+            # (mesa de examen, alguien sin teléfono, una hoja que llegó en mano). Queda
+            # registrado quién la subió: la entrega es del estudiante, la carga no.
+            db.execute("ALTER TABLE submissions ADD COLUMN cargada_por INTEGER REFERENCES users(id)")
+
         cols = {r["name"] for r in db.execute("PRAGMA table_info(users)")}
         if "consent_at" not in cols:
             # consentimiento para usar entregas anonimizadas en investigación educativa
@@ -379,6 +408,32 @@ def assignment_items(db, assignment_id: int):
 
 def items_puntaje_total(items) -> float:
     return sum(i["puntaje"] for i in items)
+
+
+AR_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
+
+
+def ventana_entrega(assignment) -> tuple:
+    """(abierta, motivo). Las fechas vacías significan sin restricción."""
+    if "fecha_apertura" not in assignment.keys():
+        return True, ""
+    hoy = datetime.now(AR_TZ).date().isoformat()
+    desde = (assignment["fecha_apertura"] or "").strip()
+    hasta = (assignment["fecha_cierre"] or "").strip()
+    if desde and hoy < desde:
+        return False, f"Esta instancia abre el {fecha_corta(desde)}."
+    if hasta and hoy > hasta:
+        return False, f"El plazo de entrega venció el {fecha_corta(hasta)}."
+    return True, ""
+
+
+def fecha_corta(iso: str) -> str:
+    """2026-09-08 → 8/9/2026. Si no parsea, se devuelve tal cual."""
+    try:
+        a, m, d = iso.split("-")
+        return f"{int(d)}/{int(m)}/{a}"
+    except (ValueError, AttributeError):
+        return iso
 
 
 def assignment_cfg(db, edicion, assignment) -> dict:

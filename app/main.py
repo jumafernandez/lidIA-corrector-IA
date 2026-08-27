@@ -16,13 +16,14 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from . import auth, investigacion
-from .db import (all_courses, assignment_cfg, assignment_items, can_access_edition,
+from .db import (all_courses, ventana_entrega, fecha_corta, assignment_cfg, assignment_items, can_access_edition,
                  grupo_de, grupos_de_instancia, miembros_de,
                  course_editions, edition_assignments, edition_teachers, enroll, final_activa,
                  get_assignment, get_config, get_course, get_db, get_edition, init_db,
                  is_enrolled, items_puntaje_total, practicas_usadas, preguntas_usadas,
                  set_config, staff_editions, student_editions, teacher_edition_ids, utcnow)
-from .emailer import send_feedback_email, smtp_configured
+from . import emailer
+from .emailer import desvio, smtp_configured
 from .extract import ExtractionError, extract_text
 from .llm import (LLMError, answer_question, generate_feedback, model_info, split_items,
                   transcribe_images)
@@ -34,6 +35,7 @@ app = FastAPI(title="LidIA", docs_url=None, redoc_url=None, root_path=BASE_PATH)
 app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 templates.env.globals["base"] = BASE_PATH
+templates.env.globals["desvio_correo"] = desvio
 
 AR_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
 STAFF = ("admin", "docente")
@@ -64,6 +66,7 @@ def first_name(full_name: str) -> str:
 templates.env.filters["md"] = md
 templates.env.filters["fecha"] = fecha
 templates.env.filters["nombre_pila"] = first_name
+templates.env.filters["fecha_corta"] = fecha_corta
 
 
 @app.on_event("startup")
@@ -142,10 +145,99 @@ def _load_submission(db, sid: int):
 
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request):
+    """Inicio: qué hay para hacer hoy, no un listado más.
+
+    Para el equipo docente lo primero es la cola de correcciones firmadas por nadie —que
+    es el trabajo real— y después lo que está por vencer. Al estudiantado le sirve su
+    espacio de siempre, que ya está armado alrededor de sus cursos.
+    """
     user = auth.current_user(request)
     if not user:
         return redirect("/login")
-    return redirect("/admin/cursos" if user["role"] in STAFF else "/panel")
+    if user["role"] not in STAFF:
+        return redirect("/panel")
+
+    hoy = datetime.now(AR_TZ).date().isoformat()
+    es_coord = user["role"] == "admin"
+    with get_db() as db:
+        # _scope_ids devuelve None para coordinación (ve todo) y una lista para docentes.
+        ids = _scope_ids(db, user)
+        if ids is None:
+            filtro, args = "1 = 1", []
+        else:
+            filtro, args = _course_cond("a.edition_id", ids)
+
+        pendientes = db.execute(
+            f"""SELECT s.id, s.created_at, u.full_name AS alumno, a.name AS instancia,
+                       c.name AS materia, ed.etiqueta, s.error
+                  FROM submissions s
+                  JOIN users u ON u.id = s.user_id
+                  JOIN assignments a ON a.id = s.assignment_id
+                  JOIN course_editions ed ON ed.id = a.edition_id
+                  JOIN courses c ON c.id = ed.course_id
+                 WHERE {filtro} AND s.kind = 'final' AND s.status = 'pendiente'
+                 ORDER BY s.created_at""", args).fetchall()
+
+        porvencer = db.execute(
+            f"""SELECT a.id, a.name, a.fecha_cierre, c.name AS materia, ed.etiqueta,
+                       (SELECT COUNT(*) FROM enrollments e WHERE e.edition_id = ed.id) AS inscriptos,
+                       (SELECT COUNT(DISTINCT s.user_id) FROM submissions s
+                         WHERE s.assignment_id = a.id AND s.kind = 'final') AS entregaron
+                  FROM assignments a
+                  JOIN course_editions ed ON ed.id = a.edition_id
+                  JOIN courses c ON c.id = ed.course_id
+                 WHERE {filtro} AND a.active = 1 AND a.requiere_revision = 1
+                       AND COALESCE(a.fecha_cierre, '') != '' AND a.fecha_cierre >= ?
+                 ORDER BY a.fecha_cierre LIMIT 5""", (*args, hoy)).fetchall()
+
+        cursadas = []
+        for c in staff_editions(db, user):
+            cursadas.append({
+                "c": c,
+                "n_est": db.execute("SELECT COUNT(*) n FROM enrollments WHERE edition_id = ?",
+                                    (c["id"],)).fetchone()["n"],
+                "n_inst": db.execute("SELECT COUNT(*) n FROM assignments WHERE edition_id = ?",
+                                     (c["id"],)).fetchone()["n"],
+                "pendientes": sum(1 for p in pendientes
+                                  if p["materia"] == c["materia"] and p["etiqueta"] == c["etiqueta"]),
+            })
+
+        # Cosas que degradan la corrección sin que nadie se entere. Solo las ve quien puede
+        # resolverlas: la coordinación en todo el laboratorio, el docente en lo suyo.
+        avisos = []
+        sin_programa = [x["c"] for x in cursadas
+                        if x["c"]["active"] and not (x["c"]["programa"] or "").strip()]
+        if sin_programa:
+            avisos.append({
+                "texto": f"{len(sin_programa)} cursada{'s' if len(sin_programa) != 1 else ''} abierta"
+                         f"{'s' if len(sin_programa) != 1 else ''} sin programa cargado: Lidia corrige"
+                         " sin saber qué se enseñó.",
+                "url": f"/admin/cursos/{sin_programa[0]['id']}/programa",
+                "accion": "Cargar el primero",
+            })
+        borradores = db.execute(
+            f"SELECT COUNT(*) n FROM assignments a WHERE {filtro} AND a.active = 0", args
+        ).fetchone()["n"]
+        if borradores:
+            avisos.append({
+                "texto": f"{borradores} instancia{'s' if borradores != 1 else ''} en borrador:"
+                         " el estudiantado todavía no la"
+                         f"{'s' if borradores != 1 else ''} ve.",
+                "url": "/admin/instancias", "accion": "Ver instancias",
+            })
+        if es_coord:
+            sin_correo = db.execute(
+                "SELECT COUNT(*) n FROM users WHERE role = 'student' AND active = 1"
+                " AND COALESCE(email, '') = ''").fetchone()["n"]
+            if sin_correo:
+                avisos.append({
+                    "texto": f"{sin_correo} estudiante{'s' if sin_correo != 1 else ''} sin correo"
+                             " cargado: no recibe la devolución final por mail.",
+                    "url": "/admin/estudiantes", "accion": "Ver estudiantes",
+                })
+
+    return render(request, "home.html", pendientes=pendientes, cursadas=cursadas,
+                  porvencer=porvencer, avisos=avisos, es_coord=es_coord)
 
 
 @app.get("/login", response_class=HTMLResponse)
@@ -368,11 +460,13 @@ def panel_instancia(request: Request, aid: int):
             "(SELECT user_id FROM grupo_miembros WHERE grupo_id = ?)", (aid, grupo["id"])
         ).fetchone())
     maxp = assignment["max_practicas"]
+    abierta, motivo_cierre = ventana_entrega(assignment)
     return render(
         request, "panel.html", cfg=cfg, course=course, assignment=assignment,
         usadas=usadas, maxp=maxp, restantes=max(0, maxp - usadas), final=final,
         entregas=entregas, items=items, puntaje_total=items_puntaje_total(items),
         grupo=grupo, companeros=companeros, grupo_cerrado=grupo_cerrado,
+        ventana_abierta=abierta, motivo_cierre=motivo_cierre,
     )
 
 
@@ -486,12 +580,17 @@ async def entregar(
         cfg = assignment_cfg(db, course, assignment)
         if kind == "final" and not assignment["requiere_revision"]:
             return redirect(back, err="Esta instancia es solo de práctica: no tiene entrega final.")
+        abierta, motivo = ventana_entrega(assignment)
+        if not abierta:
+            return redirect(back, err=motivo)
         if kind == "practica" and assignment["tipo"] == "choice":
             return redirect(back, err="Esta evaluación tiene una única oportunidad de entrega.")
         if kind == "practica" and practicas_usadas(db, user["id"], assignment_id) >= assignment["max_practicas"]:
             return redirect(back, err="Ya usaste todas tus devoluciones de práctica.")
         if kind == "final" and final_activa(db, user["id"], assignment_id):
             return redirect(back, err="Ya tenés una entrega final en curso.")
+        if assignment["modalidad"] == "papel" and origen != "foto":
+            return redirect(back, err="Esta instancia se entrega en papel: subí las fotos de tu hoja.")
 
     # respuestas de un multiple choice son cortas por naturaleza; una transcripción
     # de examen en papel ya pasó por la confirmación del estudiante
@@ -590,8 +689,11 @@ async def entregar_fotos(
         if (not assignment or not assignment["active"] or not course["active"]
                 or not is_enrolled(db, user["id"], course["id"])):
             return redirect("/panel", err="Esa instancia de evaluación no está disponible.")
-        if assignment["tipo"] not in ("escrito", "choice"):
-            return redirect(back, err="La entrega por fotos es para exámenes en papel.")
+        if assignment["modalidad"] == "digital":
+            return redirect(back, err="Esta instancia se entrega en formato digital, no en papel.")
+        abierta, motivo = ventana_entrega(assignment)
+        if not abierta:
+            return redirect(back, err=motivo)
         if kind == "final" and not assignment["requiere_revision"]:
             return redirect(back, err="Esta instancia es solo de práctica: no tiene entrega final.")
         if kind == "practica" and assignment["tipo"] == "choice":
@@ -634,6 +736,34 @@ async def entregar_fotos(
         request, "confirmar_fotos.html", assignment=assignment, course=course,
         kind=kind, transcripcion=transcripcion, n_fotos=len(imagenes),
     )
+
+
+async def _leer_fotos(fotos) -> list:
+    """Valida tamaño, formato y cantidad. Devuelve [(mime, bytes)]. Lanza ValueError con el motivo."""
+    imagenes = []
+    for f in fotos:
+        if not f.filename:
+            continue
+        data = await f.read()
+        if len(data) > MAX_FOTO_BYTES:
+            raise ValueError(f"La foto {f.filename} supera el máximo de 8 MB.")
+        mime = f.content_type if f.content_type in FOTO_MIMES else None
+        if mime is None:
+            nombre = f.filename.lower()
+            if nombre.endswith((".jpg", ".jpeg")):
+                mime = "image/jpeg"
+            elif nombre.endswith(".png"):
+                mime = "image/png"
+            elif nombre.endswith(".webp"):
+                mime = "image/webp"
+        if mime is None:
+            raise ValueError(f"{f.filename}: formato no soportado. Subí fotos JPG, PNG o WEBP.")
+        imagenes.append((mime, data))
+    if not imagenes:
+        raise ValueError("Elegí las fotos del examen.")
+    if len(imagenes) > MAX_FOTOS:
+        raise ValueError(f"Hasta {MAX_FOTOS} fotos por entrega.")
+    return imagenes
 
 
 @app.get("/entrega/{sid}", response_class=HTMLResponse)
@@ -819,6 +949,8 @@ async def admin_final_post(request: Request, sid: int):
     form = await request.form()
     action = form.get("action", "")
     feedback = form.get("feedback", "")
+    motivo_reabrir = (form.get("motivo") or "").strip()
+    nota = None
     with get_db() as db:
         sub, assignment, course = _load_submission(db, sid)
         if not sub or sub["kind"] != "final" or not can_access_edition(db, user, course["id"]):
@@ -829,11 +961,9 @@ async def admin_final_post(request: Request, sid: int):
                 "UPDATE submissions SET status = 'reabierta', reviewed_by = ?, reviewed_at = ? WHERE id = ?",
                 (user["id"], utcnow(), sid),
             )
-            return redirect("/admin/entregas", msg=f"Entrega de {owner['full_name']} reabierta: puede volver a entregar.")
         if action == "aprobar":
             if not feedback.strip():
                 return redirect(f"/admin/final/{sid}", err="La devolución no puede quedar vacía.")
-            nota = None
             crudo = (form.get("nota") or "").strip().replace(",", ".")
             if crudo:
                 try:
@@ -855,9 +985,16 @@ async def admin_final_post(request: Request, sid: int):
                 (firmada, nota, ratio, user["id"], utcnow(), sid),
             )
     if action == "aprobar":
-        sent, detail = send_feedback_email(owner["email"], first_name(owner["full_name"]), feedback.strip())
-        note = f"Devolución aprobada para {owner['full_name']}. {detail}"
-        return redirect("/admin/entregas", msg=note)
+        _, detail = emailer.enviar(owner["email"], emailer.devolucion_aprobada(
+            first_name(owner["full_name"]), course, assignment, feedback.strip(), nota))
+        return redirect("/admin/entregas", msg=f"Devolución aprobada para {owner['full_name']}. {detail}")
+    if action == "reabrir":
+        _, detail = emailer.enviar(owner["email"], emailer.entrega_reabierta(
+            first_name(owner["full_name"]), course, assignment, motivo_reabrir))
+        return redirect(
+            "/admin/entregas",
+            msg=f"Entrega de {owner['full_name']} reabierta: puede volver a entregar. {detail}",
+        )
     return redirect("/admin/entregas")
 
 
@@ -912,6 +1049,56 @@ def admin_materias(request: Request):
     return render(request, "admin_materias.html", materias=materias)
 
 
+@app.get("/admin/materias/nueva", response_class=HTMLResponse)
+def admin_materia_nueva(request: Request):
+    user, resp = _require(request, "admin")
+    if resp:
+        return resp
+    return render(request, "admin_materia_nueva.html")
+
+
+@app.post("/admin/materias/crear")
+async def admin_materia_crear(request: Request):
+    user, resp = _require(request, "admin")
+    if resp:
+        return resp
+    form = await request.form()
+    name = (form.get("name") or "").strip()
+    if not name:
+        return redirect("/admin/materias/nueva", err="La materia necesita un nombre.")
+    with get_db() as db:
+        if db.execute("SELECT 1 FROM courses WHERE name = ?", (name,)).fetchone():
+            return redirect("/admin/materias/nueva", err=f"Ya existe una materia «{name}».")
+        mid = db.execute(
+            "INSERT INTO courses (name, active, created_at) VALUES (?, 1, ?)", (name, utcnow())
+        ).lastrowid
+    return redirect(f"/admin/materias/{mid}", msg="Materia creada. Ahora dale su primera cursada.")
+
+
+@app.get("/admin/materias/{mid}", response_class=HTMLResponse)
+def admin_materia(request: Request, mid: int):
+    user, resp = _require(request, "admin")
+    if resp:
+        return resp
+    with get_db() as db:
+        materia = get_course(db, mid)
+        if not materia:
+            return redirect("/admin/materias")
+        eds = []
+        for ed in course_editions(db, mid):
+            eds.append({
+                "ed": ed,
+                "docentes": edition_teachers(db, ed["id"]),
+                "n_est": db.execute(
+                    "SELECT COUNT(*) n FROM enrollments WHERE edition_id = ?", (ed["id"],)
+                ).fetchone()["n"],
+                "n_inst": db.execute(
+                    "SELECT COUNT(*) n FROM assignments WHERE edition_id = ?", (ed["id"],)
+                ).fetchone()["n"],
+            })
+    return render(request, "admin_materia.html", materia=materia, ediciones=eds)
+
+
 @app.post("/admin/materias/{mid}")
 async def admin_materia_post(request: Request, mid: int):
     user, resp = _require(request, "admin")
@@ -926,24 +1113,24 @@ async def admin_materia_post(request: Request, mid: int):
             n = db.execute("SELECT COUNT(*) n FROM course_editions WHERE course_id = ?", (mid,)).fetchone()["n"]
             if n:
                 return redirect(
-                    "/admin/materias",
-                    err=f"«{materia['name']}» tiene {n} edición{'es' if n != 1 else ''}: "
-                        "no se puede eliminar. Desactivala si ya no se dicta.",
+                    f"/admin/materias/{mid}",
+                    err=f"«{materia['name']}» tiene {n} cursada{'s' if n != 1 else ''}: no se puede "
+                        "eliminar. Borrá primero sus cursadas, o si ya no se dicta destildá «En el plan».",
                 )
             db.execute("DELETE FROM courses WHERE id = ?", (mid,))
             return redirect("/admin/materias", msg=f"Materia «{materia['name']}» eliminada.")
         name = (form.get("name") or "").strip()
         if not name:
-            return redirect("/admin/materias", err="La materia necesita un nombre.")
+            return redirect(f"/admin/materias/{mid}", err="La materia necesita un nombre.")
         if name != materia["name"] and db.execute(
             "SELECT 1 FROM courses WHERE name = ? AND id != ?", (name, mid)
         ).fetchone():
-            return redirect("/admin/materias", err=f"Ya existe una materia «{name}».")
+            return redirect(f"/admin/materias/{mid}", err=f"Ya existe una materia «{name}».")
         db.execute(
             "UPDATE courses SET name = ?, active = ? WHERE id = ?",
             (name, 1 if form.get("active") == "1" else 0, mid),
         )
-    return redirect("/admin/materias", msg="Materia actualizada.")
+    return redirect(f"/admin/materias/{mid}", msg="Materia actualizada.")
 
 
 @app.get("/admin/cursos/nuevo", response_class=HTMLResponse)
@@ -1167,7 +1354,9 @@ def admin_instancia_editar(request: Request, aid: int):
 
 @app.post("/admin/instancias/{aid}/editar")
 def admin_instancia_editar_post(
-    request: Request, aid: int, name: str = Form(...), tipo: str = Form("")
+    request: Request, aid: int, name: str = Form(...), tipo: str = Form(""),
+    requiere_revision: str = Form(""), pide_propuesta: str = Form(""),
+    modalidad: str = Form("digital"), fecha_apertura: str = Form(""), fecha_cierre: str = Form(""),
 ):
     user, resp = _require(request, *STAFF)
     if resp:
@@ -1191,7 +1380,18 @@ def admin_instancia_editar_post(
         # el tipo solo se cambia mientras es borrador
         if assignment["active"] or tipo not in ("abierto", "escrito", "choice"):
             tipo = assignment["tipo"]
-        db.execute("UPDATE assignments SET name = ?, tipo = ? WHERE id = ?", (name, tipo, aid))
+        # el multiple choice se corrige como final: siempre pasa por una persona.
+        # La propuesta solo aplica a trabajos abiertos.
+        revision = 1 if (tipo == "choice" or requiere_revision == "1") else 0
+        propuesta = 1 if (tipo == "abierto" and pide_propuesta == "1") else 0
+        if modalidad not in ("digital", "papel", "ambos"):
+            modalidad = assignment["modalidad"]
+        db.execute(
+            "UPDATE assignments SET name = ?, tipo = ?, requiere_revision = ?, pide_propuesta = ?,"
+            " modalidad = ?, fecha_apertura = ?, fecha_cierre = ? WHERE id = ?",
+            (name, tipo, revision, propuesta, modalidad,
+             fecha_apertura.strip(), fecha_cierre.strip(), aid),
+        )
 
         aviso = ""
         if tipo != assignment["tipo"]:
@@ -1208,7 +1408,11 @@ def admin_instancia_editar_post(
 
 
 @app.post("/admin/cursos/{cid}/instancias")
-def admin_instancia_crear(request: Request, cid: int, name: str = Form(...), tipo: str = Form("abierto")):
+def admin_instancia_crear(
+    request: Request, cid: int, name: str = Form(...), tipo: str = Form("abierto"),
+    requiere_revision: str = Form(""), pide_propuesta: str = Form(""),
+    modalidad: str = Form("digital"), fecha_apertura: str = Form(""), fecha_cierre: str = Form(""),
+):
     user, resp = _require(request, *STAFF)
     if resp:
         return resp
@@ -1224,8 +1428,14 @@ def admin_instancia_crear(request: Request, cid: int, name: str = Form(...), tip
         if db.execute("SELECT 1 FROM assignments WHERE edition_id = ? AND name = ?", (cid, name)).fetchone():
             return redirect(f"/admin/cursos/{cid}/instancias/nueva", err=f"Ya existe una instancia «{name}» en este curso.")
         cur = db.execute(
-            "INSERT INTO assignments (edition_id, name, tipo, active, created_at) VALUES (?, ?, ?, 0, ?)",
-            (cid, name, tipo, utcnow()),
+            "INSERT INTO assignments (edition_id, name, tipo, active, requiere_revision,"
+            " pide_propuesta, modalidad, fecha_apertura, fecha_cierre, created_at)"
+            " VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?)",
+            (cid, name, tipo,
+             1 if (tipo == "choice" or requiere_revision == "1") else 0,
+             1 if (tipo == "abierto" and pide_propuesta == "1") else 0,
+             modalidad if modalidad in ("digital", "papel", "ambos") else "digital",
+             fecha_apertura.strip(), fecha_cierre.strip(), utcnow()),
         )
         aid = cur.lastrowid
     return redirect(f"/admin/instancias/{aid}", msg="Instancia creada — completá el material de corrección y activala.")
@@ -1245,15 +1455,50 @@ def admin_curso_programa(request: Request, cid: int):
 
 @app.post("/admin/cursos/{cid}/programa")
 async def admin_curso_programa_post(request: Request, cid: int):
+    """El programa entra como documento; lo que se guarda es su texto, ya verificable."""
     user, resp = _require(request, *STAFF)
     if resp:
         return resp
     form = await request.form()
+    volver = f"/admin/cursos/{cid}/programa"
     with get_db() as db:
         if not get_edition(db, cid) or not can_access_edition(db, user, cid):
             return redirect("/admin/cursos")
-        db.execute("UPDATE course_editions SET programa = ? WHERE id = ?",
-                   ((form.get("programa") or "").strip(), cid))
+
+        if form.get("action") == "quitar":
+            db.execute(
+                "UPDATE course_editions SET programa = '', programa_archivo = '' WHERE id = ?", (cid,)
+            )
+            return redirect(f"/admin/cursos/{cid}", msg="Programa quitado de la cursada.")
+
+        archivo = form.get("archivo")
+        if archivo is not None and getattr(archivo, "filename", ""):
+            try:
+                texto, _ = extract_text(archivo.filename, await archivo.read())
+            except ExtractionError as exc:
+                return redirect(volver, err=str(exc))
+            texto = texto.strip()
+            if len(texto) < 200:
+                return redirect(
+                    volver,
+                    err="Del archivo salieron menos de 200 caracteres. Si es un PDF escaneado no tiene "
+                        "texto que extraer: subí el original en Word, o el PDF exportado desde ahí.",
+                )
+            db.execute(
+                "UPDATE course_editions SET programa = ?, programa_archivo = ? WHERE id = ?",
+                (texto, archivo.filename, cid),
+            )
+            return redirect(
+                volver,
+                msg=f"Texto extraído de «{archivo.filename}» ({len(texto)} caracteres). "
+                    "Revisalo abajo: es lo que va a leer Lidia.",
+            )
+
+        # sin archivo: se está guardando la corrección del texto extraído
+        texto = (form.get("programa") or "").strip()
+        if not texto:
+            return redirect(volver, err="Subí el programa como archivo, o dejá el texto que ya estaba.")
+        db.execute("UPDATE course_editions SET programa = ? WHERE id = ?", (texto, cid))
     return redirect(f"/admin/cursos/{cid}", msg="Programa guardado.")
 
 
@@ -1384,6 +1629,8 @@ def admin_instancia_nueva_global(request: Request, curso: str | None = None):
 @app.post("/admin/instancias/crear")
 def admin_instancia_crear_global(
     request: Request, curso_id: int = Form(...), name: str = Form(...), tipo: str = Form("abierto"),
+    requiere_revision: str = Form(""), pide_propuesta: str = Form(""),
+    modalidad: str = Form("digital"), fecha_apertura: str = Form(""), fecha_cierre: str = Form(""),
 ):
     user, resp = _require(request, *STAFF)
     if resp:
@@ -1400,8 +1647,14 @@ def admin_instancia_crear_global(
         if db.execute("SELECT 1 FROM assignments WHERE edition_id = ? AND name = ?", (curso_id, name)).fetchone():
             return redirect(f"/admin/instancias/nueva?curso={curso_id}", err=f"Ya existe una instancia «{name}» en ese curso.")
         cur = db.execute(
-            "INSERT INTO assignments (edition_id, name, tipo, active, created_at) VALUES (?, ?, ?, 0, ?)",
-            (curso_id, name, tipo, utcnow()),
+            "INSERT INTO assignments (edition_id, name, tipo, active, requiere_revision,"
+            " pide_propuesta, modalidad, fecha_apertura, fecha_cierre, created_at)"
+            " VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?)",
+            (curso_id, name, tipo,
+             1 if (tipo == "choice" or requiere_revision == "1") else 0,
+             1 if (tipo == "abierto" and pide_propuesta == "1") else 0,
+             modalidad if modalidad in ("digital", "papel", "ambos") else "digital",
+             fecha_apertura.strip(), fecha_cierre.strip(), utcnow()),
         )
         aid = cur.lastrowid
     return redirect(f"/admin/instancias/{aid}", msg="Instancia creada — completá el material de corrección y activala.")
@@ -1447,7 +1700,11 @@ async def admin_instancia_post(request: Request, aid: int):
         if action == "eliminar":
             n = db.execute("SELECT COUNT(*) n FROM submissions WHERE assignment_id = ?", (aid,)).fetchone()["n"]
             if n:
-                return redirect(f"/admin/instancias/{aid}", err="Tiene entregas: no se puede eliminar.")
+                return redirect(
+                    f"/admin/instancias/{aid}",
+                    err=f"Tiene {n} entrega{'s' if n != 1 else ''}: eliminarla borraría esas devoluciones. "
+                        "Si ya no se usa, destildá «Activa» y deja de verse.",
+                )
             db.execute("DELETE FROM assignments WHERE id = ?", (aid,))
             return redirect(f"/admin/cursos/{cid}", msg=f"Instancia «{assignment['name']}» eliminada.")
         try:
@@ -2040,6 +2297,133 @@ def admin_investigacion_csv(request: Request, archivo: str):
         iter([contenido]), media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f"attachment; filename=lidia-{archivo}.csv"},
     )
+
+
+# ------------------------------------------------- staff: examen en papel por el estudiante
+
+def _papel_contexto(db, user, aid):
+    """Valida que la instancia admita carga docente en papel y devuelve (assignment, curso)."""
+    assignment = get_assignment(db, aid)
+    if not assignment:
+        return None, None, "/admin/instancias"
+    curso = get_edition(db, assignment["edition_id"])
+    if not can_access_edition(db, user, curso["id"]):
+        return None, None, "/admin/instancias"
+    if assignment["modalidad"] == "digital":
+        return None, None, f"/admin/instancias/{aid}"
+    return assignment, curso, None
+
+
+@app.get("/admin/instancias/{aid}/papel", response_class=HTMLResponse)
+def admin_papel(request: Request, aid: int):
+    user, resp = _require(request, *STAFF)
+    if resp:
+        return resp
+    with get_db() as db:
+        assignment, curso, salida = _papel_contexto(db, user, aid)
+        if salida:
+            return redirect(salida, err="Esta instancia no admite exámenes en papel.")
+        inscriptos = db.execute(
+            "SELECT u.id, u.login, u.full_name,"
+            " (SELECT COUNT(*) FROM submissions s WHERE s.user_id = u.id AND s.assignment_id = ?"
+            "    AND s.kind = 'final') AS tiene_final"
+            " FROM enrollments e JOIN users u ON u.id = e.user_id"
+            " WHERE e.edition_id = ? ORDER BY u.full_name",
+            (aid, curso["id"]),
+        ).fetchall()
+    return render(request, "admin_papel.html", assignment=assignment, course=curso,
+                  inscriptos=inscriptos)
+
+
+@app.post("/admin/instancias/{aid}/papel")
+async def admin_papel_leer(
+    request: Request, aid: int, alumno_id: int = Form(...), fotos: list[UploadFile] = File(...),
+):
+    """Transcribe las fotos y muestra la lectura para que el equipo docente la corrija."""
+    user, resp = _require(request, *STAFF)
+    if resp:
+        return resp
+    volver = f"/admin/instancias/{aid}/papel"
+    with get_db() as db:
+        assignment, curso, salida = _papel_contexto(db, user, aid)
+        if salida:
+            return redirect(salida, err="Esta instancia no admite exámenes en papel.")
+        alumno = db.execute(
+            "SELECT u.* FROM users u JOIN enrollments e ON e.user_id = u.id"
+            " WHERE u.id = ? AND e.edition_id = ?", (alumno_id, curso["id"]),
+        ).fetchone()
+        if not alumno:
+            return redirect(volver, err="Ese estudiante no está inscripto en la cursada.")
+        if final_activa(db, alumno_id, aid):
+            return redirect(
+                volver,
+                err=f"{alumno['full_name']} ya tiene una entrega final en curso para esta instancia.",
+            )
+
+    try:
+        imagenes = await _leer_fotos(fotos)
+    except ValueError as exc:
+        return redirect(volver, err=str(exc))
+    try:
+        transcripcion = transcribe_images(imagenes)
+    except LLMError as exc:
+        return redirect(volver, err=f"No se pudo leer el examen. {exc}")
+
+    return render(request, "admin_papel_confirmar.html", assignment=assignment, course=curso,
+                  alumno=alumno, transcripcion=transcripcion, n_fotos=len(imagenes))
+
+
+@app.post("/admin/instancias/{aid}/papel/registrar")
+async def admin_papel_registrar(
+    request: Request, aid: int, alumno_id: int = Form(...), texto: str = Form(...),
+    fotos_n: int = Form(0),
+):
+    """Registra la entrega a nombre del estudiante, dejando constancia de quién la subió."""
+    user, resp = _require(request, *STAFF)
+    if resp:
+        return resp
+    volver = f"/admin/instancias/{aid}/papel"
+    texto = texto.strip()
+    if len(texto) < 20:
+        return redirect(volver, err="La transcripción quedó vacía o demasiado corta.")
+    with get_db() as db:
+        assignment, curso, salida = _papel_contexto(db, user, aid)
+        if salida:
+            return redirect(salida, err="Esta instancia no admite exámenes en papel.")
+        alumno = db.execute(
+            "SELECT u.* FROM users u JOIN enrollments e ON e.user_id = u.id"
+            " WHERE u.id = ? AND e.edition_id = ?", (alumno_id, curso["id"]),
+        ).fetchone()
+        if not alumno:
+            return redirect(volver, err="Ese estudiante no está inscripto en la cursada.")
+        if final_activa(db, alumno_id, aid):
+            return redirect(volver, err=f"{alumno['full_name']} ya tiene una entrega final en curso.")
+        cfg = assignment_cfg(db, curso, assignment)
+
+    tele = {}
+    try:
+        feedback, model, tele = generate_feedback(
+            cfg, first_name(alumno["full_name"]), alumno["profile"] or "", texto, "final", False
+        )
+        error = ""
+    except LLMError as exc:
+        feedback, model, error = "", "", str(exc)
+
+    with get_db() as db:
+        cur = db.execute(
+            "INSERT INTO submissions (user_id, assignment_id, kind, status, original_filename,"
+            " work_text, text_chars, truncated, ai_feedback_md, model_used, error, created_at,"
+            " cfg_snapshot, tokens_in, tokens_out, latencia_ms, finish_reason, cargada_por)"
+            " VALUES (?, ?, 'final', 'pendiente', ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (alumno_id, aid, f"examen en papel ({fotos_n} foto{'s' if fotos_n != 1 else ''})",
+             texto, len(texto), feedback, model, error, utcnow(),
+             json.dumps(cfg, ensure_ascii=False), tele.get("tokens_in"), tele.get("tokens_out"),
+             tele.get("latencia_ms"), tele.get("finish_reason"), user["id"]),
+        )
+        sid = cur.lastrowid
+    aviso = f" Ojo: no se pudo generar la propuesta de corrección ({error})" if error else ""
+    return redirect(f"/admin/final/{sid}",
+                    msg=f"Examen de {alumno['full_name']} registrado.{aviso}")
 
 
 @app.get("/admin/credenciales.csv")

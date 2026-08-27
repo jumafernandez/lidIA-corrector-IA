@@ -1,43 +1,41 @@
 {% extends "base.html" %}
+{% from "_ui.html" import info %}
 {% block title %}Materias{% endblock %}
 {% block content %}
 <p class="crumbs"><a href="{{ base }}/admin/cursos">← Cursos</a></p>
 <div class="row-between head">
   <h1>Materias</h1>
-  <a class="btn small primary" href="{{ base }}/admin/cursos/nuevo">Nueva edición</a>
+  <a class="btn small primary" href="{{ base }}/admin/materias/nueva">Nueva materia</a>
 </div>
-<p class="muted small guia">La materia es el nombre estable, sin año ni cuatrimestre. Renombrarla acá la cambia
-en todas sus ediciones, también en las cerradas.</p>
+<p class="muted small guia">La materia es el nombre estable, sin año ni cuatrimestre: lo comparten todas
+sus cursadas. Cada una tiene su ficha, donde se renombra y se ven sus ediciones.</p>
 
-{% for r in materias %}
 <section class="card">
-  <form method="post" action="{{ base }}/admin/materias/{{ r.m.id }}">
-    <div class="ajustes">
-      <label>Nombre
-        <input name="name" value="{{ r.m.name }}" required>
-      </label>
-      <label style="font-weight: 400; margin-top: 26px">
-        <input type="checkbox" name="active" value="1" {{ 'checked' if r.m.active }} style="width: auto; margin-right: 8px">
-        Se ofrece para ediciones nuevas
-      </label>
-      <div style="margin-top: 20px">
-        <button type="submit" class="btn small primary">Guardar</button>
-        {% if not r.ediciones %}
-        <button type="submit" name="action" value="eliminar" class="btn small ghost" formnovalidate
-                onclick="return confirm('¿Eliminar la materia «{{ r.m.name }}»?')">Eliminar</button>
-        {% endif %}
-      </div>
-    </div>
-  </form>
-  <p class="muted small">
-    {{ r.ediciones|length }} edición{{ 'es' if r.ediciones|length != 1 }} · {{ r.n_est }} estudiante{{ 's' if r.n_est != 1 }}:
-    {% for e in r.ediciones %}<a href="{{ base }}/admin/cursos/{{ e.id }}">{{ e.etiqueta }}</a>{{ ' · ' if not loop.last }}{% else %}todavía ninguna{% endfor %}
-  </p>
+  <table>
+    <thead><tr><th>Materia</th><th>Cursadas</th><th>Estudiantes</th><th>Estado {{ info("Una materia fuera del plan deja de ofrecerse al crear cursadas nuevas. Las que ya existen siguen funcionando igual.") }}</th><th></th></tr></thead>
+    <tbody>
+    {% for r in materias %}
+      <tr>
+        <td><a href="{{ base }}/admin/materias/{{ r.m.id }}">{{ r.m.name }}</a></td>
+        <td>
+          {% for e in r.ediciones %}<a class="pill pill-mini pill-edicion" href="{{ base }}/admin/cursos/{{ e.id }}">{{ e.etiqueta }}</a>{{ ' ' if not loop.last }}{% else %}<span class="muted">—</span>{% endfor %}
+        </td>
+        <td>{{ r.n_est }}</td>
+        <td><span class="pill pill-mini {{ 'pill-ok' if r.m.active else 'pill-warn' }}">{{ 'En el plan' if r.m.active else 'Fuera del plan' }}</span></td>
+        <td class="acciones">
+          <a class="btn small" href="{{ base }}/admin/materias/{{ r.m.id }}">Ficha</a>
+          <form method="post" action="{{ base }}/admin/materias/{{ r.m.id }}" class="inline"
+                data-confirm="¿Eliminar la materia «{{ r.m.name }}»?">
+            <input type="hidden" name="action" value="eliminar">
+            <button class="btn small ghost">Eliminar</button>
+          </form>
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="5" class="muted">Todavía no hay materias. Creá la primera, o creá una edición y la materia nace con ella.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+
 </section>
-{% else %}
-<section class="card center-note">
-  <h2>Todavía no hay materias</h2>
-  <p class="muted">Se crean solas al crear la primera edición.</p>
-</section>
-{% endfor %}
 {% endblock %}

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_ui.html" import info %}
 {% block title %}Estudiantes{% endblock %}
 {% block content %}
 <div class="row-between head">
@@ -28,7 +29,7 @@
 
 <section class="card">
   <table>
-    <thead><tr><th>DNI</th><th>Nombre</th><th>Correo</th><th>Cursos</th><th>Estado</th><th></th></tr></thead>
+    <thead><tr><th>DNI</th><th>Nombre</th><th>Correo</th><th>Cursos {{ info("El número es la cantidad de entregas en ese curso.") }}</th><th>Estado {{ info("Deshabilitar no borra nada: el estudiante sigue viendo su historial, con un aviso amable para regularizar lo administrativo. El texto del aviso se edita en Configuración.") }}</th><th></th></tr></thead>
     <tbody>
     {% for e in rows %}
       <tr>
@@ -42,9 +43,15 @@
           {% else %}<span class="muted small">sin curso</span>{% endfor %}
         </td>
         <td><span class="pill pill-mini {{ 'pill-ok' if e.active else 'pill-warn' }}">{{ 'Habilitado' if e.active else 'Deshabilitado' }}</span></td>
-        <td>
+        <td class="acciones">
+          <a class="btn small" href="{{ base }}/admin/estudiantes/{{ e.id }}">Ficha</a>
           <form method="post" action="{{ base }}/admin/estudiantes/{{ e.id }}/toggle" class="inline">
             <button class="btn small {{ 'ghost' if e.active else 'primary' }}">{{ 'Deshabilitar' if e.active else 'Habilitar' }}</button>
+          </form>
+          <form method="post" action="{{ base }}/admin/estudiantes/{{ e.id }}" class="inline"
+                data-confirm="¿Eliminar a {{ e.full_name }}? Se pierde su usuario y sus inscripciones.">
+            <input type="hidden" name="action" value="eliminar">
+            <button class="btn small ghost">Eliminar</button>
           </form>
         </td>
       </tr>
@@ -53,6 +60,6 @@
     {% endfor %}
     </tbody>
   </table>
-  <p class="muted small">En «Cursos», el número es la cantidad de entregas en ese curso. Deshabilitar no borra nada: el estudiante sigue viendo su historial, con un aviso amable para regularizar lo administrativo (el texto se edita en Configuración).</p>
+
 </section>
 {% endblock %}

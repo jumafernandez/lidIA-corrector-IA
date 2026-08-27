@@ -30,6 +30,13 @@ los docentes y las instancias son propios de cada edición.</p>
         <td class="acciones">
           <a class="btn small" href="{{ base }}/admin/cursos/{{ r.c.id }}">Ficha</a>
           <a class="btn small ghost" href="{{ base }}/admin/cursos/{{ r.c.id }}/duplicar">Duplicar</a>
+          {% if user.role == 'admin' %}
+          <form method="post" action="{{ base }}/admin/cursos/{{ r.c.id }}" class="inline"
+                data-confirm="¿Eliminar la cursada «{{ r.c.nombre }}» con sus instancias e inscripciones?">
+            <input type="hidden" name="action" value="eliminar">
+            <button class="btn small ghost">Eliminar</button>
+          </form>
+          {% endif %}
         </td>
       </tr>
       {% endfor %}

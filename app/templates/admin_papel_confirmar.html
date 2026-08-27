@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% from "_ui.html" import info %}
+{% block title %}Verificar la lectura · {{ alumno.full_name }}{% endblock %}
+{% block content %}
+<p class="crumbs"><a href="{{ base }}/admin/instancias/{{ assignment.id }}/papel">← Cargar otro examen</a></p>
+<h1>Verificá la lectura
+  {{ info("Esto es lo que Lidia leyó de las fotos, y es lo que va a corregir. A diferencia del
+  estudiante, vos sí podés editarlo: sos quien tiene el papel delante y puede resolver una palabra
+  dudosa. Corregí lo que haga falta antes de registrar.") }}
+</h1>
+<p class="muted">{{ alumno.full_name }} ({{ alumno.login }}) · {{ assignment.name }} ·
+  {{ n_fotos }} foto{{ 's' if n_fotos != 1 }}</p>
+
+<form method="post" action="{{ base }}/admin/instancias/{{ assignment.id }}/papel/registrar"
+      data-confirm="Vas a registrar esta entrega final a nombre de {{ alumno.full_name }}. ¿Confirmás?"
+      data-lidia="Lidia está corrigiendo el examen">
+<section class="card">
+  <input type="hidden" name="alumno_id" value="{{ alumno.id }}">
+  <input type="hidden" name="fotos_n" value="{{ n_fotos }}">
+  <textarea name="texto" rows="20" class="crudo-edit" required>{{ transcripcion }}</textarea>
+  <div class="row-gap" style="margin-top: 12px">
+    <button type="submit" class="btn accent">Registrar y corregir</button>
+    <a class="btn ghost" href="{{ base }}/admin/instancias/{{ assignment.id }}/papel">Volver y sacar las fotos de nuevo</a>
+  </div>
+</section>
+</form>
+{% endblock %}

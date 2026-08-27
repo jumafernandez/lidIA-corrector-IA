@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% from "_ui.html" import info %}
+{% block title %}{{ materia.name }}{% endblock %}
+{% block content %}
+<p class="crumbs"><a href="{{ base }}/admin/materias">← Materias</a></p>
+<h1>{{ materia.name }}
+  <span class="pill pill-mini {{ 'pill-ok' if materia.active else 'pill-warn' }}">{{ 'En el plan' if materia.active else 'Fuera del plan' }}</span></h1>
+
+<section class="card">
+  <div class="row-between">
+    <h2>Cursadas ({{ ediciones|length }})</h2>
+    <a class="btn small primary" href="{{ base }}/admin/cursos/nuevo?materia={{ materia.id }}">Nueva cursada</a>
+  </div>
+  <table>
+    <thead><tr><th>Edición</th><th>Instancias</th><th>Estudiantes</th><th>Docentes</th><th>Estado</th><th></th></tr></thead>
+    <tbody>
+    {% for e in ediciones %}
+      <tr>
+        <td><a href="{{ base }}/admin/cursos/{{ e.ed.id }}">{{ e.ed.etiqueta }}</a></td>
+        <td>{{ e.n_inst }}</td>
+        <td>{{ e.n_est }}</td>
+        <td class="muted small">{% for d in e.docentes %}{{ d.full_name|nombre_pila }}{{ ', ' if not loop.last }}{% else %}—{% endfor %}</td>
+        <td><span class="pill pill-mini {{ 'pill-ok' if e.ed.active else 'pill-warn' }}">{{ 'Abierta' if e.ed.active else 'Cerrada' }}</span></td>
+        <td><a class="btn small" href="{{ base }}/admin/cursos/{{ e.ed.id }}">Ficha</a></td>
+      </tr>
+    {% else %}
+      <tr><td colspan="6" class="muted">Esta materia todavía no tiene ninguna cursada.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<form method="post" action="{{ base }}/admin/materias/{{ materia.id }}">
+<section class="card">
+  <h2>Identidad</h2>
+  <label>Nombre
+    <input name="name" value="{{ materia.name }}" required>
+    {{ info("Sin año ni cuatrimestre. Renombrarla acá la cambia en todas sus cursadas, también en las cerradas.") }}
+  </label>
+  <label style="font-weight: 400">
+    <input type="checkbox" name="active" value="1" {{ 'checked' if materia.active }} style="width: auto; margin-right: 8px">
+    En el plan
+    {{ info("Destildala si ya no se dicta: deja de ofrecerse al crear cursadas nuevas. Las que ya existen no se tocan y siguen funcionando igual.") }}
+  </label>
+
+  <div class="savebar">
+    <button type="submit" class="btn primary">Guardar</button>
+    {% if not ediciones %}
+      <button type="submit" name="action" value="eliminar" class="btn ghost" formnovalidate
+              onclick="return confirm('¿Eliminar la materia «{{ materia.name }}»? No tiene cursadas, así que no se pierde ninguna entrega.')">Eliminar materia</button>
+    {% else %}
+      <span class="muted small">No se puede eliminar: tiene {{ ediciones|length }} cursada{{ 's' if ediciones|length != 1 }}. Borralas primero, o si ya no se dicta destildá «En el plan».</span>
+    {% endif %}
+  </div>
+</section>
+</form>
+{% endblock %}

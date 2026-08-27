@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Roboto+Slab:wght@400;500;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="{{ base }}/static/style.css?v=25">
+<link rel="stylesheet" href="{{ base }}/static/style.css?v=36">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='80' font-size='80'>🧠</text></svg>">
 </head>
 <body class="{% block bodyclass %}{% endblock %}">
@@ -15,8 +15,8 @@
 {% block topbar %}
 <header class="topbar">
   <div class="wrap topbar-in">
-    <a class="brand" href="{{ base }}/">{{ lidia('still') }}<span class="brand-txt">Lid<b>IA</b></span></a>
-    <span class="brand-sub">Laboratorio de Investigación en Ciencia de Datos &amp; Inteligencia Artificial · UNLu</span>
+    <a class="brand" href="{{ base }}/" title="Ir al inicio">{{ lidia('still') }}<span class="brand-txt">Lid<b>IA</b></span>
+      <span class="brand-sub">Laboratorio de Investigación en Ciencia de Datos &amp; Inteligencia Artificial · UNLu</span></a>
     <nav>
       {% if user %}
         {% if user.role in ('admin', 'docente') %}
@@ -44,6 +44,10 @@
           </details>
         {% else %}
           <a href="{{ base }}/panel">Mi espacio</a>
+        {% endif %}
+        {% if user.role in ('admin', 'docente') and desvio_correo() %}
+          <a class="marca-prueba" href="{{ base }}/admin/config"
+             title="Todo el correo se desvía a {{ desvio_correo() }} y no llega al estudiantado. Se quita borrando SMTP_DESVIAR_A del entorno.">✉ prueba</a>
         {% endif %}
         <details class="nav-menu user-menu">
           <summary>
@@ -105,6 +109,32 @@ document.querySelectorAll(".lidia.greet").forEach(el => {
   el.classList.add("talking");
   setTimeout(() => el.classList.remove("talking"), 3200);
 });
+// Selectores de archivo en castellano. El botón nativo dice "Choose File" en el idioma
+// del navegador y no se puede cambiar por CSS, así que se lo oculta y se dispara desde
+// una etiqueta propia, que además muestra el nombre del archivo elegido.
+document.querySelectorAll('input[type=file]').forEach(inp => {
+  if (inp.dataset.vestido) return;
+  inp.dataset.vestido = "1";
+  const caja = document.createElement("div");
+  caja.className = "archivo";
+  const boton = document.createElement("button");
+  boton.type = "button";
+  boton.className = "btn small";
+  boton.textContent = inp.multiple ? "Elegir archivos" : "Elegir archivo";
+  const nombre = document.createElement("span");
+  nombre.className = "archivo-nombre muted small";
+  nombre.textContent = "sin archivo elegido";
+  inp.parentNode.insertBefore(caja, inp);
+  caja.append(boton, nombre, inp);
+  boton.addEventListener("click", () => inp.click());
+  inp.addEventListener("change", () => {
+    const n = inp.files.length;
+    nombre.textContent = n === 0 ? "sin archivo elegido"
+      : n === 1 ? inp.files[0].name : `${n} archivos elegidos`;
+    nombre.classList.toggle("elegido", n > 0);
+  });
+});
+
 // menús del encabezado: uno abierto por vez, y se cierran al hacer clic afuera
 document.querySelectorAll("details.nav-menu").forEach(menu => {
   menu.addEventListener("toggle", () => {

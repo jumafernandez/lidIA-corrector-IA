@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_ui.html" import info %}
 {% block title %}Investigación{% endblock %}
 {% block content %}
 <h1>Datos para investigación</h1>
@@ -14,13 +15,15 @@ consentimiento, y siempre sin nombre, DNI ni correo.</p>
     <div class="cifra"><strong>{{ r.sin_responder }}</strong><span>sin responder</span></div>
   </div>
   {% if r.sin_responder %}
-  <p class="muted small">Quien no respondió queda afuera del análisis. La pregunta le aparece en
-  «Tu cuenta»; conviene mencionarla en la primera clase y no volver a insistir.</p>
+  <p class="muted small">Quien no respondió queda afuera del análisis.
+  {{ info("La pregunta le aparece en «Tu cuenta». Conviene mencionarla una vez en la primera clase y no volver a insistir: el consentimiento tiene que ser libre.") }}</p>
   {% endif %}
 </section>
 
 <section class="card">
-  <h2>Qué hay registrado hoy</h2>
+  <h2>Qué hay registrado hoy
+    {{ info("«Reescritura media» es cuánto reescribe el equipo docente la propuesta de la IA antes de firmarla: 0 significa que se firmó tal cual, 1 que se escribió de nuevo de punta a punta. Es la medida central del sistema, y la única que no se puede reconstruir después.") }}
+  </h2>
   <div class="cifras">
     <div class="cifra"><strong>{{ r.entregas }}</strong><span>entregas</span></div>
     <div class="cifra"><strong>{{ r.exportables }}</strong><span>exportables</span></div>
@@ -31,9 +34,7 @@ consentimiento, y siempre sin nombre, DNI ni correo.</p>
     <div class="cifra"><strong>{{ r.valoradas }}</strong><span>valoradas</span></div>
     <div class="cifra"><strong>{{ r.utiles }}</strong><span>«me sirvió»</span></div>
   </div>
-  <p class="muted small"><strong>Reescritura media</strong> es cuánto reescribe el equipo docente la
-  propuesta de la IA antes de firmarla: 0 significa que se firmó tal cual, 1 que se escribió de nuevo
-  de punta a punta. Es la medida central del sistema, y la única que no se puede reconstruir después.</p>
+
   {% if r.ediciones_sin_fechas %}
   <div class="flash warn">Hay {{ r.ediciones_sin_fechas }} cursada(s) activa(s) sin fechas de inicio
   y fin. Sin eso no se puede situar cada entrega dentro del cuatrimestre (si llegó la primera semana
@@ -42,16 +43,13 @@ consentimiento, y siempre sin nombre, DNI ni correo.</p>
 </section>
 
 <section class="card">
-  <h2>Exportar</h2>
+  <h2>Exportar
+    {{ info("La tabla de configuraciones trae, por entrega, la consigna y la rúbrica exactas con las que se generó esa devolución. Van aparte porque son textos largos, y sirven cuando la consigna cambió a mitad de la cursada. Cada persona aparece con un código estable (E… estudiantes, D… docentes): el mismo código en distintas exportaciones es la misma persona, pero no permite volver a ella.") }}
+  </h2>
   <p><a class="btn primary" href="{{ base }}/admin/investigacion/entregas.csv">Descargar entregas (CSV)</a>
      <a class="btn ghost" href="{{ base }}/admin/investigacion/configuraciones.csv">Descargar configuraciones (CSV)</a></p>
   <p class="muted small">La tabla de entregas trae un caso por entrega con {{ campos|length }} columnas:
   {{ campos|join(', ') }}.</p>
-  <p class="muted small">La de configuraciones trae, por entrega, la consigna y la rúbrica exactas con
-  las que se generó esa devolución. Van aparte porque son textos largos, y sirven cuando la consigna
-  cambió a mitad de la cursada y ya no coincide con la que está guardada hoy en la instancia.</p>
-  <p class="muted small">Cada persona aparece con un código estable (E… para estudiantes, D… para
-  docentes): el mismo código en distintas exportaciones es la misma persona, pero el código no
-  permite volver a ella.</p>
+
 </section>
 {% endblock %}

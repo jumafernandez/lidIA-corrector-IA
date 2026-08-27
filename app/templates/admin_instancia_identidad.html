@@ -1,14 +1,15 @@
 {% extends "base.html" %}
+{% from "_ui.html" import info %}
 {% set editando = assignment is not none %}
 {% set global_ = course is none %}
 {% set tipo_actual = assignment.tipo if editando else 'abierto' %}
 {% set bloqueado = editando and assignment.active %}
-{% block title %}{{ 'Nombre y tipo · ' ~ assignment.name if editando else 'Nueva instancia' }}{% endblock %}
+{% block title %}{{ 'Definición · ' ~ assignment.name if editando else 'Nueva instancia' }}{% endblock %}
 {% block content %}
 <p class="crumbs"><a href="{{ base }}{{ '/admin/instancias/' ~ assignment.id if editando else ('/admin/instancias' if global_ else '/admin/cursos/' ~ course.id) }}">←
   {{ assignment.name if editando else ('Instancias' if global_ else course.name) }}</a></p>
-<h1>{{ 'Nombre y tipo' if editando else 'Nueva instancia de evaluación' }}</h1>
-{% if not global_ %}<p class="muted">{{ course.name }}{% if editando %} · paso 1 de 2: qué es esta instancia{% endif %}</p>{% endif %}
+<h1>{{ 'Definición de la instancia' if editando else 'Nueva instancia de evaluación' }}</h1>
+{% if not global_ %}<p class="muted">{{ course.name }}{% if editando %} · paso 1 de 2: qué es y cómo se entrega{% endif %}</p>{% endif %}
 
 <section class="card">
   <form method="post" action="{{ base }}{{ '/admin/instancias/' ~ assignment.id ~ '/editar' if editando else ('/admin/instancias/crear' if global_ else '/admin/cursos/' ~ course.id ~ '/instancias') }}">
@@ -30,25 +31,105 @@
     {% endif %}
     <label style="font-weight: 400">
       <input type="radio" name="tipo" value="abierto" {{ 'checked' if tipo_actual == 'abierto' }} {{ 'disabled' if bloqueado }} style="width: auto; margin-right: 8px">
-      <strong>Trabajo abierto</strong> — TP o trabajo final. Se evalúa con consigna y rúbrica, criterio por criterio; sin nota numérica en las prácticas.
+      <strong>Trabajo abierto</strong>{{ info("TP o trabajo final. Se evalúa con consigna y rúbrica, criterio por criterio; sin nota numérica en las prácticas.") }}
     </label>
     <label style="font-weight: 400">
       <input type="radio" name="tipo" value="escrito" {{ 'checked' if tipo_actual == 'escrito' }} {{ 'disabled' if bloqueado }} style="width: auto; margin-right: 8px">
-      <strong>Examen escrito</strong> — se corrige contra respuestas esperadas. Las prácticas orientan sin revelar la respuesta; la corrección final la revela y propone calificación.
+      <strong>Examen escrito</strong>{{ info("Se corrige contra respuestas esperadas. Las prácticas orientan sin revelar la respuesta; la corrección final la revela y propone calificación.") }}
     </label>
     <label style="font-weight: 400">
       <input type="radio" name="tipo" value="choice" {{ 'checked' if tipo_actual == 'choice' }} {{ 'disabled' if bloqueado }} style="width: auto; margin-right: 8px">
-      <strong>Multiple choice</strong> — clave de corrección y una única oportunidad de entrega, con calificación sugerida y firma docente.
+      <strong>Multiple choice</strong>{{ info("Clave de corrección y una única oportunidad de entrega, con calificación sugerida y firma docente.") }}
     </label>
 
+    <p style="margin: 18px 0 4px"><strong>Circuito de corrección</strong></p>
+    <label style="font-weight: 400">
+      <input type="checkbox" name="requiere_revision" value="1" id="chk-revision"
+             {{ 'checked' if (assignment.requiere_revision if editando else true) }} style="width: auto; margin-right: 8px">
+      Requiere revisión humana final
+      {{ info("Marcado, la instancia tiene una entrega final que una persona revisa, firma y califica:
+      es un intento más además de las prácticas. Sin marcar es solo formativa —se practica con Lidia y
+      nadie firma nada—, útil cuando la validación la hacés por fuera del sistema.") }}
+    </label>
+
+    <label style="font-weight: 400">
+      <input type="checkbox" name="pide_propuesta" value="1" id="chk-propuesta"
+             {{ 'checked' if editando and assignment.pide_propuesta }} style="width: auto; margin-right: 8px">
+      Se corrige contra una propuesta aprobada
+      <span class="muted small" id="solo-abierto" hidden>· solo en trabajos abiertos</span>
+      {{ info("El estudiantado adjunta su propuesta ya aprobada junto con el trabajo, y Lidia evalúa la
+      coherencia entre lo que propuso y lo que entregó. Si no la adjunta se le avisa antes de entregar,
+      la corrección se hace igual y la entrega queda marcada.") }}
+    </label>
+
+    <p style="margin: 18px 0 4px"><strong>Entrega</strong></p>
+    <div class="grid2">
+      <label>Cómo se entrega
+        {{ info("Digital: archivo PDF, DOCX, TXT o MD, o texto pegado. Papel: fotos de la hoja resuelta,
+        que Lidia transcribe. Ambas deja elegir al estudiantado. El equipo docente puede cargar el papel
+        por alguien en cualquiera de las dos que incluya papel.") }}
+        <select name="modalidad">
+          {% set modo = assignment.modalidad if editando else 'digital' %}
+          <option value="digital" {{ 'selected' if modo == 'digital' }}>Solo digital (archivo o texto)</option>
+          <option value="papel" {{ 'selected' if modo == 'papel' }}>Solo en papel (fotos)</option>
+          <option value="ambos" {{ 'selected' if modo == 'ambos' }}>Las dos</option>
+        </select>
+      </label>
+      <div></div>
+      <label>Abre el
+        {{ info("Antes de esta fecha la instancia se ve pero no admite entregas. Dejala vacía para que
+        esté disponible desde que la actives.") }}
+        <input type="date" name="fecha_apertura" value="{{ assignment.fecha_apertura if editando else '' }}">
+      </label>
+      <label>Cierra el
+        {{ info("Último día para entregar, inclusive. Pasada esa fecha no se admiten entregas nuevas —ni
+        prácticas ni finales— y el estudiantado sigue viendo lo que ya entregó. Dejala vacía si no hay
+        plazo.") }}
+        <input type="date" name="fecha_cierre" value="{{ assignment.fecha_cierre if editando else '' }}">
+      </label>
+    </div>
+
     <button type="submit" class="btn primary">{{ 'Guardar y volver a la ficha' if editando else 'Crear y pasar a la ficha' }}</button>
-    <p class="muted small">
-      {% if editando %}
-        Cambiar el tipo cambia qué material pide la ficha. Lo que hayas cargado no se borra: si volvés al tipo anterior, reaparece.
-      {% else %}
-        En la pantalla siguiente se trabaja la instancia: consigna, material de corrección, cupos y activación.
-      {% endif %}
-    </p>
+    {{ info("Cambiar el tipo cambia qué material pide la ficha. Lo que hayas cargado no se borra: si volvés al tipo anterior, reaparece." if editando else "En la pantalla siguiente se trabaja la instancia: consigna, material de corrección, cupos y activación.") }}
   </form>
 </section>
+
+<script>
+// «Se corrige contra una propuesta» solo tiene sentido en trabajos abiertos, y el multiple
+// choice siempre pasa por una persona: los controles siguen al tipo elegido acá mismo.
+const tipos = document.querySelectorAll('input[name="tipo"]');
+const chkPropuesta = document.getElementById('chk-propuesta');
+const chkRevision = document.getElementById('chk-revision');
+const nota = document.getElementById('solo-abierto');
+
+function tipoElegido() {
+  const m = [...tipos].find(r => r.checked);
+  return m ? m.value : 'abierto';
+}
+
+function seguirTipo() {
+  const t = tipoElegido();
+  const abierto = t === 'abierto';
+  chkPropuesta.disabled = !abierto;
+  if (!abierto) chkPropuesta.checked = false;
+  nota.hidden = abierto;
+  chkPropuesta.closest('label').style.opacity = abierto ? '' : '.55';
+
+  const choice = t === 'choice';
+  chkRevision.disabled = choice;
+  if (choice) chkRevision.checked = true;
+  chkRevision.closest('label').style.opacity = choice ? '.55' : '';
+}
+
+chkRevision.addEventListener('change', () => {
+  if (!chkRevision.checked && !confirm(
+      'Sin revisión humana, esta instancia no tiene entrega final: nadie firma ni califica, y la ' +
+      'devolución de Lidia es lo último que ve el estudiante.\n\n' +
+      'Tiene sentido cuando la validación la hacés por fuera del sistema. ¿Es lo que querés?')) {
+    chkRevision.checked = true;
+  }
+});
+tipos.forEach(r => r.addEventListener('change', seguirTipo));
+seguirTipo();
+</script>
 {% endblock %}

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_ui.html" import info %}
 {% block title %}Configuración{% endblock %}
 {% block content %}
 <h1>Configuración</h1>
@@ -9,8 +10,14 @@
   <div class="stat"><b style="font-size:1rem">{{ 'Sí' if smtp_ok else 'No' }}</b>
     <span>correo saliente (SMTP) configurado</span></div>
 </div>
-<p class="muted small">El proveedor del modelo y el SMTP se configuran por variables de entorno (ver README / .env).
-La consigna, la rúbrica, las indicaciones para Lidia y los cupos se editan en la ficha de cada <a href="{{ base }}/admin/cursos">curso</a>.</p>
+{% if desvio_correo() %}
+<div class="flash warn">Modo de prueba de correo activo: <strong>todos</strong> los mensajes se desvían a
+{{ desvio_correo() }} y no llegan al estudiantado. Se quita borrando <code>SMTP_DESVIAR_A</code> del entorno
+de la aplicación y reiniciando el servicio.</div>
+{% endif %}
+
+<p class="muted small">Lo que no se configura acá
+  {{ info("El proveedor del modelo y el correo saliente (SMTP) se configuran por variables de entorno: ver README y .env. La consigna, la rúbrica, las indicaciones para Lidia y los cupos se editan en la ficha de cada instancia de evaluación.") }}</p>
 
 <section class="card">
   <h2>Ajustes globales</h2>

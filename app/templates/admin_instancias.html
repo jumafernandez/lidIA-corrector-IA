@@ -20,7 +20,14 @@
         <td>{{ r.a.n_entregas }}</td>
         <td>{% if r.a.pendientes %}<span class="pill pill-mini pill-warn">{{ r.a.pendientes }}</span>{% else %}—{% endif %}</td>
         <td><span class="pill pill-mini {{ 'pill-ok' if r.a.active else 'pill-warn' }}">{{ 'Activa' if r.a.active else 'Borrador' }}</span></td>
-        <td><a class="btn small" href="{{ base }}/admin/instancias/{{ r.a.id }}">Ficha</a></td>
+        <td class="acciones">
+          <a class="btn small" href="{{ base }}/admin/instancias/{{ r.a.id }}">Ficha</a>
+          <form method="post" action="{{ base }}/admin/instancias/{{ r.a.id }}" class="inline"
+                data-confirm="¿Eliminar la instancia «{{ r.a.name }}»?">
+            <input type="hidden" name="action" value="eliminar">
+            <button class="btn small ghost">Eliminar</button>
+          </form>
+        </td>
       </tr>
     {% else %}
       <tr><td colspan="7" class="muted">Todavía no hay instancias de evaluación en tus cursos.</td></tr>

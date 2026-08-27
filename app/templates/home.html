@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% from "_lidia.html" import lidia %}
+{% block title %}Inicio{% endblock %}
+{% block content %}
+<div class="saludo">
+  {{ lidia('greet') }}
+  <div>
+    <h1>Hola, {{ user.full_name|nombre_pila }}</h1>
+    <p class="muted">
+      {% if pendientes %}
+        Hay <strong>{{ pendientes|length }}</strong> entrega{{ 's' if pendientes|length != 1 }}
+        esperando corrección{{ ' en el laboratorio' if es_coord }}.
+      {% elif cursadas %}
+        No hay entregas esperando corrección{{ ' en ninguna cursada' if es_coord }}. Todo al día.
+      {% elif es_coord %}
+        Todavía no hay cursadas cargadas en el laboratorio.
+      {% else %}
+        Todavía no tenés cursadas asignadas: pedile a la coordinación que te asigne.
+      {% endif %}
+    </p>
+  </div>
+</div>
+
+{% if pendientes %}
+<section class="card">
+  <div class="row-between">
+    <h2>{{ 'Esperando corrección' if es_coord else 'Esperando tu corrección' }}</h2>
+    <a class="btn small" href="{{ base }}/admin/entregas">Todas las entregas</a>
+  </div>
+  <table>
+    <thead><tr><th>Estudiante</th><th>Instancia</th><th>Cursada</th><th>Entregada</th><th></th></tr></thead>
+    <tbody>
+    {% for p in pendientes %}
+      <tr>
+        <td>{{ p.alumno }}</td>
+        <td>{{ p.instancia }}</td>
+        <td class="muted small">{{ p.materia }} {{ p.etiqueta }}</td>
+        <td class="muted small">{{ p.created_at|fecha }}
+          {% if p.error %}<span class="pill pill-mini pill-warn" title="{{ p.error }}">sin propuesta de la IA</span>{% endif %}
+        </td>
+        <td><a class="btn small primary" href="{{ base }}/admin/final/{{ p.id }}">Corregir</a></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+{% if porvencer %}
+<section class="card">
+  <h2>Plazos próximos</h2>
+  <table>
+    <thead><tr><th>Instancia</th><th>Cursada</th><th>Cierra</th><th>Entregaron</th><th></th></tr></thead>
+    <tbody>
+    {% for a in porvencer %}
+      <tr>
+        <td>{{ a.name }}</td>
+        <td class="muted small">{{ a.materia }} {{ a.etiqueta }}</td>
+        <td>{{ a.fecha_cierre|fecha_corta }}</td>
+        <td>{{ a.entregaron }} de {{ a.inscriptos }}</td>
+        <td><a class="btn small" href="{{ base }}/admin/instancias/{{ a.id }}">Ficha</a></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+{% for a in avisos %}
+<div class="flash warn">{{ a.texto }} <a href="{{ base }}{{ a.url }}">{{ a.accion }}</a></div>
+{% endfor %}
+
+<section class="card">
+  <div class="row-between">
+    <h2>{{ 'Cursadas del laboratorio' if es_coord else 'Tus cursadas' }}</h2>
+    <a class="btn small" href="{{ base }}/admin/cursos">Ver todas</a>
+  </div>
+  {% if cursadas %}
+  <div class="tarjetas">
+    {% for x in cursadas %}
+      <a class="tarjeta" href="{{ base }}/admin/cursos/{{ x.c.id }}">
+        <strong>{{ x.c.materia }}</strong>
+        <span class="pill pill-mini pill-edicion">{{ x.c.etiqueta }}</span>
+        <span class="muted small">{{ x.n_inst }} instancia{{ 's' if x.n_inst != 1 }} ·
+          {{ x.n_est }} estudiante{{ 's' if x.n_est != 1 }}</span>
+        {% if x.pendientes %}<span class="pill pill-mini pill-warn">{{ x.pendientes }} por corregir</span>{% endif %}
+      </a>
+    {% endfor %}
+  </div>
+  {% else %}
+    {% if es_coord %}
+      <p class="muted">Todavía no hay ninguna cursada. Creá la primera desde
+      <a href="{{ base }}/admin/cursos/nuevo">Nueva edición</a>.</p>
+    {% else %}
+      <p class="muted">Todavía no tenés cursadas asignadas. La coordinación te las asigna desde la ficha
+      de cada cursada.</p>
+    {% endif %}
+  {% endif %}
+</section>
+{% endblock %}

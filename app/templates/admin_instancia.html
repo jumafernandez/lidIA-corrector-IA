@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_ui.html" import info %}
 {% set tipo_nombre = {'abierto': 'Trabajo abierto', 'escrito': 'Examen escrito', 'choice': 'Multiple choice'}[assignment.tipo] %}
 {% set modelo_url = {
   'abierto': 'https://docs.google.com/document/d/1H21oa4SMEYxeGQyEo2xPlFnPwy-Bh9sT2jwb8GO1TUo/edit',
@@ -31,6 +32,17 @@
     </div>
 
     {% if assignment.tipo in ('escrito', 'choice') %}
+<section class="card">
+  <div class="row-between">
+    <h2>Examen en papel
+      {{ info("Para cuando la hoja llegó en mano y el estudiante no la va a subir: mesa de examen, un parcial tomado en el aula, alguien sin teléfono. Sacás las fotos, Lidia las transcribe, vos verificás la lectura y la entrega queda a nombre del estudiante con constancia de que la subiste vos.") }}
+    </h2>
+    <a class="btn small primary" href="{{ base }}/admin/instancias/{{ assignment.id }}/papel">Cargar examen</a>
+  </div>
+  <p class="muted small">El estudiantado también puede subir sus propias fotos desde su panel.</p>
+</section>
+{% endif %}
+{% if assignment.tipo in ('escrito', 'choice') %}
     {% set es_choice = assignment.tipo == 'choice' %}
     <p class="muted small">{{ 'La opción correcta de cada pregunta es material interno: el estudiante nunca la ve.'
       if es_choice else
@@ -107,34 +119,14 @@
       {% if assignment.tipo != 'choice' %}
       <label>Devoluciones de práctica (1–10)
         <input name="max_practicas" value="{{ assignment.max_practicas }}">
-        <span class="ayuda" id="ayuda-intentos"></span>
+        <span class="ayuda">{% if assignment.requiere_revision %}Más la entrega final: {{ assignment.max_practicas + 1 }} intentos en total.{% else %}Sin entrega final: son todos los intentos que tiene.{% endif %}</span>
       </label>
       <label>Preguntas por devolución (0–10)
         <input name="max_preguntas" value="{{ assignment.max_preguntas }}">
       </label>
       <label>Integrantes por grupo (1–8)
         <input name="max_integrantes" value="{{ assignment.max_integrantes }}">
-        <span class="ayuda">1 = entrega individual. Con 2 o más, el estudiantado arma sus grupos y el cupo pasa a ser del grupo.</span>
-      </label>
-      {% endif %}
-      {% if assignment.tipo != 'choice' %}
-      <label style="font-weight: 400">
-        <input type="checkbox" name="requiere_revision" value="1" id="chk-revision"
-               {{ 'checked' if assignment.requiere_revision }} style="width: auto; margin-right: 8px">
-        Requiere revisión humana final
-        <span class="ayuda" style="margin-left: 26px">Marcado, la instancia tiene una entrega final que
-        una persona revisa, firma y califica: es un intento más, además de las prácticas. Sin marcar, la
-        instancia es solo formativa —el estudiantado practica con Lidia y nadie firma nada—, útil cuando
-        la validación la hacés por fuera del sistema.</span>
-      </label>
-      {% endif %}
-      {% if assignment.tipo == 'abierto' %}
-      <label style="font-weight: 400">
-        <input type="checkbox" name="pide_propuesta" value="1" {{ 'checked' if assignment.pide_propuesta }} style="width: auto; margin-right: 8px">
-        Se corrige contra una propuesta aprobada
-        <span class="ayuda" style="margin-left: 26px">El estudiantado adjunta su propuesta junto con el trabajo, y Lidia
-        evalúa la coherencia entre lo que propuso y lo que entregó. Si no la adjunta, se le avisa antes de entregar,
-        la corrección se hace igual y la entrega queda marcada.</span>
+        {{ info("1 = entrega individual. Con 2 o más, el estudiantado arma sus grupos y el cupo de prácticas pasa a ser del grupo, no de cada persona. Es un máximo: alguien puede entregar solo.") }}
       </label>
       {% endif %}
     </div>
@@ -147,10 +139,8 @@
 
   <div class="savebar">
     <button type="submit" class="btn primary">Guardar instancia</button>
-    {% if n_entregas == 0 %}
     <button type="submit" name="action" value="eliminar" class="btn ghost" formnovalidate
             onclick="return confirm('¿Eliminar la instancia «{{ assignment.name }}»?')">Eliminar</button>
-    {% endif %}
     <span class="nota">Para activarla hace falta el material de corrección completo.</span>
   </div>
 </form>
@@ -239,32 +229,5 @@ if (lista) {
   refrescar();
 }
 
-// La revisión humana es la promesa del sistema: quitarla no puede ser un clic distraído.
-const chkRevision = document.getElementById('chk-revision');
-const inputPracticas = document.querySelector('input[name="max_practicas"]');
-const ayudaIntentos = document.getElementById('ayuda-intentos');
-
-function refrescarIntentos() {
-  if (!ayudaIntentos || !inputPracticas) return;
-  const n = parseInt(inputPracticas.value, 10);
-  if (!Number.isFinite(n)) { ayudaIntentos.textContent = ''; return; }
-  ayudaIntentos.textContent = (chkRevision && chkRevision.checked)
-    ? `${n} de práctica + 1 entrega final = ${n + 1} intentos en total.`
-    : `${n} intentos en total: esta instancia no tiene entrega final.`;
-}
-
-if (chkRevision) {
-  chkRevision.addEventListener('change', () => {
-    if (!chkRevision.checked && !confirm(
-        'Sin revisión humana, esta instancia no tiene entrega final: nadie firma ni califica, y la ' +
-        'devolución de Lidia es lo último que ve el estudiante.\n\n' +
-        'Tiene sentido cuando la validación la hacés por fuera del sistema. ¿Es lo que querés?')) {
-      chkRevision.checked = true;
-    }
-    refrescarIntentos();
-  });
-}
-if (inputPracticas) inputPracticas.addEventListener('input', refrescarIntentos);
-refrescarIntentos();
 </script>
 {% endblock %}

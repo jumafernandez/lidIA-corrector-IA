@@ -1,0 +1,13 @@
+{# Explicación plegada detrás de un icono.
+
+   La información sigue estando —y a un clic—, pero no ocupa la pantalla ni compite con
+   los controles. Usa <details>, así que funciona sin JavaScript y es accesible por teclado.
+
+   Uso:  {% from "_ui.html" import info %}  …  {{ info("Texto largo que explica el control.") }}
+#}
+{% macro info(texto, titulo='') %}
+<details class="info">
+  <summary title="{{ titulo or 'Qué significa' }}" aria-label="{{ titulo or 'Qué significa' }}"></summary>
+  <div class="info-panel">{{ texto }}</div>
+</details>
+{% endmacro %}

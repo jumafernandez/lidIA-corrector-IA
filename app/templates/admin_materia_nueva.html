@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% from "_ui.html" import info %}
+{% block title %}Nueva materia{% endblock %}
+{% block content %}
+<p class="crumbs"><a href="{{ base }}/admin/materias">← Materias</a></p>
+<h1>Nueva materia
+  {{ info("La materia por sí sola no admite entregas: después de crearla vas a poder darle su primera cursada, que es donde viven las instancias de evaluación, los docentes y el estudiantado.") }}
+</h1>
+
+<form method="post" action="{{ base }}/admin/materias/crear">
+<section class="card" style="max-width: 620px">
+  <label>Nombre de la materia
+    <input name="name" required autofocus placeholder="Ej.: Introducción a la Inteligencia Artificial">
+    <span class="ayuda">Sin año ni cuatrimestre: eso va en la etiqueta de cada cursada («2026», «2026 2C»,
+    «contracursada 2025»).</span>
+  </label>
+
+  <div class="row-gap">
+    <button type="submit" class="btn primary">Crear materia</button>
+    <a class="btn ghost" href="{{ base }}/admin/materias">Cancelar</a>
+  </div>
+</section>
+</form>
+{% endblock %}

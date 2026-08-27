@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_ui.html" import info %}
 {% block title %}Nuevo estudiante{% endblock %}
 {% block content %}
 <p class="crumbs"><a href="{{ base }}/admin/estudiantes">← Estudiantes</a></p>
@@ -28,9 +29,8 @@
       <textarea name="profile" rows="7" placeholder="Orienta el tono y el foco de las devoluciones de Lidia para esta persona. Ej.: viene de sistemas, puede recibir observaciones técnicas duras · perfil no informático, priorizar lo conceptual y sugerir recursos introductorios"></textarea>
     </label>
     <button type="submit" class="btn primary">Dar de alta</button>
-    <p class="muted small">Se genera una contraseña inicial y se muestra al crear. Si el DNI ya existe, solo se lo
-    inscribe en el curso elegido. El perfil ajusta la devolución sin cambiar el estándar de exigencia; el DNI nunca
-    se envía al modelo.</p>
+    {{ info("Se genera una contraseña inicial y se muestra al crear. Si el DNI ya existe, solo se lo inscribe en el curso elegido. El perfil ajusta la devolución sin cambiar el estándar de exigencia; el DNI nunca se envía al modelo.") }}
+
   </form>
 </section>
 {% endblock %}

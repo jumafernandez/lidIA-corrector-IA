@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% from "_ui.html" import info %}
+{% block title %}Examen en papel · {{ assignment.name }}{% endblock %}
+{% block content %}
+<p class="crumbs"><a href="{{ base }}/admin/instancias/{{ assignment.id }}">← {{ assignment.name }}</a></p>
+<h1>Cargar un examen en papel
+  {{ info("Para cuando la hoja llegó en mano: mesa de examen, alguien sin teléfono, un parcial que se
+  tomó en el aula. Sacás las fotos, Lidia las transcribe y vos verificás la lectura antes de registrarla.
+  La entrega queda a nombre del estudiante, con constancia de que la subiste vos.") }}
+</h1>
+<p class="muted">{{ course.materia }} {{ course.etiqueta }} · {{ assignment.name }}</p>
+
+<form method="post" action="{{ base }}/admin/instancias/{{ assignment.id }}/papel"
+      enctype="multipart/form-data" data-busy="1" data-lidia="Lidia está leyendo el examen">
+<section class="card" style="max-width: 640px">
+  <label>Estudiante
+    <select name="alumno_id" required>
+      <option value="">— elegí a quién pertenece este examen —</option>
+      {% for e in inscriptos %}
+        <option value="{{ e.id }}" {{ 'disabled' if e.tiene_final }}>
+          {{ e.full_name }} ({{ e.login }}){{ ' · ya tiene entrega final' if e.tiene_final }}</option>
+      {% endfor %}
+    </select>
+  </label>
+
+  <label>Fotos del examen resuelto
+    <input type="file" name="fotos" accept="image/jpeg,image/png,image/webp" multiple required>
+  </label>
+  <p class="muted small">Hasta 6 fotos (JPG, PNG o WEBP), en orden, con buena luz y la hoja completa.</p>
+
+  <button type="submit" class="btn primary">Leer el examen</button>
+  <p class="muted small">Todavía no se registra nada: en el paso siguiente verificás la transcripción.</p>
+</section>
+</form>
+{% endblock %}

@@ -1,35 +1,55 @@
 {% extends "base.html" %}
+{% from "_ui.html" import info %}
 {% block title %}Programa · {{ course.materia }}{% endblock %}
 {% block content %}
 <p class="crumbs"><a href="{{ base }}/admin/cursos/{{ course.id }}">← {{ course.materia }} {{ course.etiqueta }}</a></p>
-<h1>Programa de la cursada</h1>
+<h1>Programa de la cursada
+  {{ info("El programa es de esta cursada, no de la materia: cambia entre ediciones, y con él cambian
+  los contenidos, la bibliografía y el equipo docente. Lidia lo usa como contexto en todas las
+  instancias de evaluación de la cursada, para situar sus comentarios en las unidades y la bibliografía
+  que el estudiantado efectivamente cursó, y para no reclamar temas que el curso no cubrió. No es
+  criterio de evaluación: el estándar sigue siendo la consigna y la rúbrica de cada instancia.") }}
+</h1>
 <p class="muted">{{ course.materia }} <span class="pill pill-edicion">{{ course.etiqueta }}</span></p>
 
-<p class="muted small" style="max-width: 70ch">El programa es de <strong>esta cursada</strong>, no de la
-materia: cambia entre ediciones y con él cambian los contenidos, la bibliografía y el equipo docente.
-Lidia lo usa como contexto en todas las instancias de evaluación de la cursada, para situar sus
-comentarios en las unidades y la bibliografía que el estudiantado efectivamente cursó, y para no
-reclamar temas que el curso no cubrió. <strong>No es criterio de evaluación</strong>: el estándar sigue
-siendo la consigna y la rúbrica de cada instancia.</p>
-
-<form method="post" action="{{ base }}/admin/cursos/{{ course.id }}/programa">
-  <textarea name="programa" rows="24">{{ course.programa }}</textarea>
-  <div class="row-gap" style="margin-top: 12px">
-    <button type="submit" class="btn primary">Guardar programa</button>
-    <a class="btn ghost" href="{{ base }}/admin/cursos/{{ course.id }}">Volver sin guardar</a>
-  </div>
+<form method="post" action="{{ base }}/admin/cursos/{{ course.id }}/programa" enctype="multipart/form-data">
+<section class="card">
+  <h2>{{ 'Reemplazar el documento' if course.programa else 'Subir el programa' }}</h2>
+  {% if course.programa %}
+    <p class="muted small">Cargado{% if course.programa_archivo %} desde <strong>{{ course.programa_archivo }}</strong>{% endif %}
+    · {{ course.programa|length }} caracteres de texto.</p>
+  {% endif %}
+  <input type="file" name="archivo" accept=".pdf,.docx,.txt,.md">
+  <p class="muted small">PDF, DOCX, TXT o MD — el programa tal como lo aprobó el Consejo.
+  {{ info("LidIA extrae el texto del archivo para dárselo a Lidia como contexto. El documento original sigue siendo el de siempre: acá no se guarda ni se reemplaza.") }}</p>
+  <button type="submit" class="btn primary">{{ 'Subir y reemplazar' if course.programa else 'Subir programa' }}</button>
+</section>
 </form>
 
-<link rel="stylesheet" href="{{ base }}/static/vendor/easymde.min.css">
-<script src="{{ base }}/static/vendor/easymde.min.js"></script>
-<script>
-new EasyMDE({
-  element: document.querySelector('textarea[name="programa"]'),
-  spellChecker: false,
-  status: false,
-  minHeight: '520px',
-  toolbar: ['bold', 'italic', 'heading', '|', 'unordered-list', 'ordered-list', 'quote', 'link', '|', 'preview', 'guide'],
-  forceSync: true,
-});
-</script>
+{% if course.programa %}
+<form method="post" action="{{ base }}/admin/cursos/{{ course.id }}/programa">
+<section class="card">
+  <div class="row-between">
+    <h2>Texto extraído
+      {{ info("Esto es lo que Lidia va a leer, no el archivo. La extracción de un PDF puede traer
+      encabezados repetidos, números de página o columnas mezcladas: revisalo y corregí lo que
+      moleste. Editar acá no toca el documento original.") }}
+    </h2>
+    <span class="muted small">{{ course.programa|length }} caracteres</span>
+  </div>
+  <textarea name="programa" rows="18" class="crudo-edit">{{ course.programa }}</textarea>
+  <div class="row-gap" style="margin-top: 12px">
+    <button type="submit" class="btn primary">Guardar el texto</button>
+    <button type="submit" name="action" value="quitar" class="btn ghost" formnovalidate
+            onclick="return confirm('¿Quitar el programa de esta cursada? Lidia deja de tenerlo como contexto.')">Quitar programa</button>
+  </div>
+</section>
+</form>
+{% else %}
+<section class="card center-note">
+  <h2>Todavía sin programa</h2>
+  <p class="muted">Sin él, Lidia corrige solo contra la consigna y la rúbrica de cada instancia: no puede
+  decir «esto lo vimos en la unidad 4» ni evitar sugerir temas que esta cursada no dio.</p>
+</section>
+{% endif %}
 {% endblock %}

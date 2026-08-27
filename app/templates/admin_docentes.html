@@ -18,7 +18,16 @@
         <td>{{ d.email or '—' }}</td>
         <td class="muted small">{{ d.cursos or '—' }}</td>
         <td><span class="pill pill-mini {{ 'pill-ok' if d.active else 'pill-warn' }}">{{ 'Habilitado' if d.active else 'Deshabilitado' }}</span></td>
-        <td><a class="btn small" href="{{ base }}/admin/docentes/{{ d.id }}">Ficha</a></td>
+        <td class="acciones">
+          <a class="btn small" href="{{ base }}/admin/docentes/{{ d.id }}">Ficha</a>
+          {% if d.role != 'admin' %}
+          <form method="post" action="{{ base }}/admin/docentes/{{ d.id }}" class="inline"
+                data-confirm="¿Eliminar a {{ d.full_name }}? Se pierde su usuario y sus asignaciones a cursos.">
+            <input type="hidden" name="action" value="eliminar">
+            <button class="btn small ghost">Eliminar</button>
+          </form>
+          {% endif %}
+        </td>
       </tr>
     {% else %}
       <tr><td colspan="6" class="muted">Todavía no hay docentes cargados.</td></tr>

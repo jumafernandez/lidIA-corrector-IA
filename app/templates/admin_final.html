@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_ui.html" import info %}
 {% block title %}Revisar entrega final{% endblock %}
 {% block content %}
 <p class="crumbs"><a href="{{ base }}/admin/entregas">← Entregas</a></p>
@@ -34,13 +35,18 @@ y no evaluó la coherencia con lo propuesto: ese criterio lo tenés que mirar vo
           <label>Nota (0 a 10, opcional)
             <input name="nota" inputmode="decimal" style="max-width: 110px"
                    value="{{ '' if sub.nota is none else ('%g' % sub.nota) }}" placeholder="—">
-            <span class="ayuda">{% if assignment.tipo == 'abierto' %}En trabajos abiertos Lidia no sugiere nota: la ponés vos.{% else %}Lidia sugiere una en la corrección; revisala antes de firmar.{% endif %} Se exporta al CSV de notas de la edición.</span>
+            {{ info("En trabajos abiertos Lidia no sugiere nota: la ponés vos. En exámenes y multiple choice sugiere una en la corrección, revisala antes de firmar. La nota se exporta al CSV de notas de la cursada.") }}
           </label>
         </div>
         <div class="row-gap">
           <button type="submit" name="action" value="aprobar" class="btn primary">Aprobar y notificar</button>
-          <button type="submit" name="action" value="reabrir" class="btn ghost" formnovalidate>Reabrir (pedir nueva versión)</button>
+          <button type="submit" name="action" value="reabrir" class="btn ghost" formnovalidate
+                  onclick="return confirm('Se le avisa por correo que puede volver a presentar. ¿Reabrir?')">Reabrir (pedir nueva versión)</button>
         </div>
+        <label style="margin-top: 10px">Si reabrís, ¿por qué? (opcional)
+          {{ info("Va en el correo que recibe, para que sepa qué corregir antes de volver a presentar. Si lo dejás vacío, el aviso dice solo que la entrega se reabrió.") }}
+          <input name="motivo" placeholder="Ej.: falta el código que reproduce los resultados">
+        </label>
         <p class="muted small">Lo que apruebes acá es la devolución oficial que ve el estudiante — editala con libertad.</p>
       </form>
     {% endif %}

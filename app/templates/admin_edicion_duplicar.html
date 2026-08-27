@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_ui.html" import info %}
 {% block title %}Duplicar {{ origen.nombre }}{% endblock %}
 {% block content %}
 <p class="crumbs"><a href="{{ base }}/admin/cursos/{{ origen.id }}">← {{ origen.nombre }}</a></p>
@@ -43,9 +44,9 @@
   <label style="font-weight: 400; margin-top: 14px">
     <input type="checkbox" name="activar" value="1" style="width: auto; margin-right: 8px">
     Copiarlas ya activas (visibles para el estudiantado)
+    {{ info("Si no la tildás llegan como borrador, que es lo recomendado: casi siempre hay algo que retocar de un año al otro.") }}
   </label>
-  <p class="muted small">Si no la tildás llegan como borrador, que es lo recomendado: casi siempre hay algo que
-  retocar de un año al otro.</p>
+
 </section>
 
 <section class="card">

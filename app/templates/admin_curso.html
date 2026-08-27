@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_ui.html" import info %}
 {% block title %}{{ course.name }}{% endblock %}
 {% block content %}
 <p class="crumbs"><a href="{{ base }}/admin/cursos">← Cursos</a></p>
@@ -9,23 +10,26 @@
 
 <section class="card">
   <div class="row-between">
-    <h2>Programa de la cursada</h2>
+    <h2>Programa de la cursada
+      {{ info("Subís el programa aprobado en PDF o Word y LidIA extrae su texto. Lidia lo usa como
+      contexto en todas las instancias de esta cursada: sitúa sus comentarios en las unidades y la
+      bibliografía que se dieron, y no reclama temas que el curso no cubrió. No es criterio de
+      evaluación.") }}
+    </h2>
     <a class="btn small {{ 'primary' if not course.programa }}" href="{{ base }}/admin/cursos/{{ course.id }}/programa">{{ 'Editar programa' if course.programa else 'Cargar programa' }}</a>
   </div>
   {% if course.programa %}
-    <p class="muted small">Cargado ({{ course.programa|length }} caracteres). Lidia lo usa como contexto
-    en todas las instancias de esta cursada: sitúa sus comentarios en las unidades y la bibliografía que
-    se dieron, y no reclama temas que el curso no cubrió.</p>
+    <p class="muted small">Cargado{% if course.programa_archivo %} desde <strong>{{ course.programa_archivo }}</strong>{% endif %}.</p>
   {% else %}
-    <p class="muted small">Sin programa cargado. Sin él, Lidia corrige solo contra la consigna y la
-    rúbrica de cada instancia: no puede decir «esto lo vimos en la unidad 4» ni evitar sugerir temas
-    que esta cursada no dio.</p>
+    <p class="muted small">Sin programa cargado.</p>
   {% endif %}
 </section>
 
 <section class="card">
   <div class="row-between">
-    <h2>Instancias de evaluación</h2>
+    <h2>Instancias de evaluación
+      {{ info("Cada instancia tiene su tipo, su consigna, su material de corrección y sus cupos. Arranca como borrador: se activa desde su ficha cuando está lista.") }}
+    </h2>
     <a class="btn small primary" href="{{ base }}/admin/cursos/{{ course.id }}/instancias/nueva">Nueva instancia</a>
   </div>
   <table>
@@ -45,7 +49,7 @@
     {% endfor %}
     </tbody>
   </table>
-  <p class="muted small">Cada instancia tiene su tipo, su consigna, su material de corrección y sus cupos. Arranca como borrador: se activa desde su ficha cuando está lista.</p>
+{{ info("Cada instancia tiene su tipo, su consigna, su material de corrección y sus cupos. Arranca como borrador: se activa desde su ficha cuando está lista.") }}
 </section>
 
 <form method="post" action="{{ base }}/admin/cursos/{{ course.id }}">
@@ -60,19 +64,18 @@
     <label style="font-weight: 400; margin-top: 34px">
       <input type="checkbox" name="active" value="1" {{ 'checked' if course.active }} style="width: auto; margin-right: 8px">
       Cursada abierta (admite entregas nuevas)
+      {{ info("Al cerrar la cursada, el estudiantado sigue viendo sus entregas y devoluciones, pero no puede presentar nada nuevo.") }}
     </label>
   </div>
   <div class="grid2">
-    <label>Comienza
+    <label>Comienza {{ info("Las fechas son informativas: no cierran nada por sí solas, pero sitúan cada entrega dentro de la cursada, que es lo que después permite analizar cuándo entrega el estudiantado.") }}
       <input type="date" name="fecha_inicio" value="{{ course.fecha_inicio }}">
     </label>
     <label>Termina
       <input type="date" name="fecha_fin" value="{{ course.fecha_fin }}">
     </label>
   </div>
-  <p class="muted small">Las fechas son informativas: no cierran nada por sí solas, pero sitúan cada entrega
-  dentro de la cursada, que es lo que después permite analizar cuándo entrega el estudiantado.</p>
-  <p class="muted small">Al cerrar la cursada, el estudiantado sigue viendo sus entregas y devoluciones, pero no puede presentar nada nuevo.</p>
+
   {% endif %}
   <p style="margin-bottom: 4px"><strong>Docentes de esta edición</strong></p>
   {% if user.role == 'admin' %}

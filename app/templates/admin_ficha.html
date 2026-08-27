@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_ui.html" import info %}
 {% block title %}{{ est.full_name }}{% endblock %}
 {% block content %}
 <p class="crumbs"><a href="{{ base }}/admin/estudiantes">← Estudiantes</a></p>
@@ -21,10 +22,11 @@ entregásela por un canal seguro. Deja de mostrarse cuando la cambie desde su cu
       <label>Correo
         <input name="email" value="{{ est.email }}" type="text" placeholder="para avisarle la devolución final">
       </label>
-      <label>Perfil de corrección (optativo — texto libre, todo lo largo que haga falta)
+      <label>Perfil de corrección (optativo)
+        {{ info("Ajusta tono y foco de la devolución de Lidia para esta persona: texto libre, todo lo largo que haga falta. El estándar de exigencia es el mismo para todo el grupo. El DNI nunca se envía al modelo.") }}
         <textarea name="profile" rows="9" placeholder="Orienta el tono y el foco de las devoluciones de Lidia para esta persona. Ej.: viene de sistemas, puede recibir observaciones técnicas duras · perfil no informático, priorizar lo conceptual y sugerir recursos introductorios">{{ est.profile }}</textarea>
       </label>
-      <p class="muted small">Ajusta tono y foco de la devolución de Lidia para esta persona. El estándar de exigencia es el mismo para todo el grupo. El DNI nunca se envía al modelo.</p>
+
       <button type="submit" class="btn primary">Guardar</button>
     </form>
     <hr style="border: none; border-top: 1px solid var(--line); margin: 16px 0">
