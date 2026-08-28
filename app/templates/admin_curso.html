@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_ui.html" import info %}
+{% from "_circuito.html" import circuito %}
 {% block title %}{{ course.name }}{% endblock %}
 {% block content %}
 <p class="crumbs"><a href="{{ base }}/admin/cursos">← Cursos</a></p>
@@ -7,6 +8,8 @@
   <span class="pill pill-mini {{ 'pill-ok' if course.active else 'pill-warn' }}">{{ 'Cursada abierta' if course.active else 'Cursada cerrada' }}</span></h1>
 <p class="muted"><a href="{{ base }}/admin/cursos/{{ course.id }}/duplicar">⧉ Duplicar esta edición</a>
   · otras ediciones de {{ course.materia }} en <a href="{{ base }}/admin/materias">Materias</a></p>
+
+{{ circuito(pasos, avance, base) }}
 
 <section class="card">
   <div class="row-between">

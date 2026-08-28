@@ -30,7 +30,7 @@ la devolución no evalúa si el trabajo es coherente con lo que se propuso.</div
   {% elif sub.status == 'aprobada' %}
     <section class="card">
       <h2>Devolución del equipo docente</h2>
-      <div class="prose">{{ sub.final_feedback_md|md|safe }}</div>
+      <div class="prose" data-leer>{{ sub.final_feedback_md|md|safe }}</div>
     </section>
   {% elif sub.status == 'reabierta' %}
     <section class="card center-note">
@@ -41,7 +41,7 @@ la devolución no evalúa si el trabajo es coherente con lo que se propuso.</div
   {% if user.role in ('admin', 'docente') and sub.ai_feedback_md %}
     <section class="card">
       <h2>Propuesta de la IA (visible solo para docentes)</h2>
-      <div class="prose">{{ sub.ai_feedback_md|md|safe }}</div>
+      <div class="prose" data-leer>{{ sub.ai_feedback_md|md|safe }}</div>
     </section>
   {% endif %}
 {% else %}
@@ -50,7 +50,7 @@ la devolución no evalúa si el trabajo es coherente con lo que se propuso.</div
       {{ lidia('greet') }}
       <h2>La devolución de Lidia</h2>
     </div>
-    <div class="prose">{{ sub.ai_feedback_md|md|safe }}</div>
+    <div class="prose" data-leer>{{ sub.ai_feedback_md|md|safe }}</div>
     <p class="muted small">Generada con IA ({{ sub.model_used }}) — orientativa; la calificación final la define el equipo docente.</p>
 
     {% if user.role == 'student' %}

@@ -3,6 +3,7 @@ import csv
 import difflib
 import io
 import json
+import logging
 import os
 import re
 from datetime import datetime, timezone
@@ -11,11 +12,11 @@ from zoneinfo import ZoneInfo
 
 import markdown as md_lib
 from fastapi import FastAPI, File, Form, Request, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse, Response, StreamingResponse
+from fastapi.responses import PlainTextResponse, HTMLResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import auth, intentos, investigacion, lti, lti_storage
+from . import auth, circuito as circ, intentos, investigacion, lti, lti_storage
 from .db import (all_courses, ventana_entrega, fecha_corta, assignment_cfg, assignment_items, can_access_edition,
                  grupo_de, grupos_de_instancia, miembros_de,
                  course_editions, edition_assignments, edition_teachers, enroll, final_activa,
@@ -67,7 +68,42 @@ templates.env.filters["md"] = md
 templates.env.filters["fecha"] = fecha
 templates.env.filters["nombre_pila"] = first_name
 templates.env.filters["fecha_corta"] = fecha_corta
+log = logging.getLogger("lidia")
 app.include_router(lti.router)
+
+
+@app.middleware("http")
+async def origen_confiable(request: Request, call_next):
+    """Rechaza los POST que vienen de otro sitio.
+
+    LidIA se defendía de CSRF con `SameSite=Lax` en su cookie de sesión. La cookie que
+    usan quienes entran desde el campus tiene que ser `SameSite=None` —si no, el
+    lanzamiento entre sitios no funciona—, y eso deja esas sesiones sin esa protección
+    en TODAS las rutas, no solo en las de LTI. Esto repone lo que se cedió.
+
+    Solo mira el encabezado `Origin`, que el navegador pone solo y no se puede falsificar
+    desde una página. Si no viene (peticiones del mismo sitio en algunos navegadores,
+    curl, un formulario viejo), se deja pasar: el objetivo es cortar el envío desde otro
+    sitio, no romper lo que ya andaba.
+
+    Las rutas de /lti/ quedan afuera a propósito: ahí el POST entre sitios es el
+    mecanismo, y su protección es la firma del token, que es más fuerte que esto.
+    """
+    if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+        ruta = request.url.path
+        origen = request.headers.get("origin")
+        if origen and not ruta.startswith(f"{BASE_PATH}/lti/" if BASE_PATH else "/lti/"):
+            propio = f"{request.url.scheme}://{request.url.netloc}"
+            permitidos = {propio}
+            extra = os.environ.get("ORIGENES_PERMITIDOS", "").strip()
+            if extra:
+                permitidos |= {o.strip().rstrip("/") for o in extra.split(",") if o.strip()}
+            if origen.rstrip("/") not in permitidos:
+                log.warning("POST rechazado por origen ajeno: %s → %s", origen, ruta)
+                return PlainTextResponse(
+                    "Ese envío no viene de LidIA. Si llegaste acá desde otro sitio, "
+                    "volvé a entrar desde la aplicación.", status_code=403)
+    return await call_next(request)
 
 
 @app.on_event("startup")
@@ -254,13 +290,17 @@ def login_form(request: Request):
 def login(request: Request, login_id: str = Form(...), password: str = Form(...)):
     login_id = login_id.strip()
     ip = intentos.origen(request)
-    if freno := intentos.bloqueado(login_id, ip):
-        return redirect("/login", err=freno)
+    # Tope duro primero, solo para no gastar CPU en el hash si alguien está martillando.
+    if intentos.abuso(login_id):
+        return redirect("/login", err="Demasiados intentos. Esperá unos minutos.")
     with get_db() as db:
         row = db.execute("SELECT * FROM users WHERE login = ?", (login_id,)).fetchone()
+    # La contraseña se verifica ANTES del freno: quien la sabe entra siempre. Al revés,
+    # cualquiera que conociera un DNI podría dejar a esa persona afuera de su propia cuenta.
     if not row or not auth.verify_password(password, row["password_hash"]):
         intentos.fallo(login_id, ip)
-        return redirect("/login", err="Usuario o contraseña incorrectos.")
+        return redirect("/login", err=intentos.bloqueado(login_id, ip)
+                        or "Usuario o contraseña incorrectos.")
     intentos.acierto(login_id, ip)
     # los estudiantes deshabilitados sí entran (ven su historial y el aviso administrativo)
     if row["role"] != "student" and not row["active"]:
@@ -276,9 +316,11 @@ def login(request: Request, login_id: str = Form(...), password: str = Form(...)
 
 @app.post("/logout")
 def logout(request: Request):
-    token = request.cookies.get(auth.COOKIE_NAME)
-    if token:
-        auth.destroy_session(token)
+    # Las dos cookies apuntan a sesiones de la misma tabla: hay que invalidar las dos,
+    # o cerrar sesión solo borra la cookie y el token queda vivo para siempre.
+    for nombre in (auth.COOKIE_NAME, auth.LTI_COOKIE_NAME):
+        if token := request.cookies.get(nombre):
+            auth.destroy_session(token)
     resp = redirect("/login", msg="Sesión cerrada.")
     resp.delete_cookie(auth.COOKIE_NAME, path=BASE_PATH or "/")
     resp.delete_cookie(auth.LTI_COOKIE_NAME, path=BASE_PATH or "/")
@@ -1240,10 +1282,13 @@ def admin_curso(request: Request, cid: int):
             (cid, cid),
         ).fetchall()
     asignados_ids = {d["id"] for d in asignados}
+    with get_db() as db:
+        pasos = circ.circuito(db, course)
     return render(
         request, "admin_curso.html", course=course, asignados=asignados, asignados_ids=asignados_ids,
         docentes=docentes, instancias=instancias, inscriptos=inscriptos,
-        vinculo_campus=bool(lti_storage.servicios_de_cursada(cid)),
+        vinculo_campus=lti.habilitado() and bool(lti_storage.servicios_de_cursada(cid)),
+        pasos=pasos, avance=circ.resumen(pasos),
     )
 
 
@@ -1689,10 +1734,13 @@ def admin_instancia(request: Request, aid: int):
             "SELECT COUNT(*) n FROM submissions WHERE assignment_id = ?", (aid,)
         ).fetchone()["n"]
         items = assignment_items(db, aid)
+    with get_db() as db:
+        pasos = circ.circuito(db, course, assignment)
     return render(
         request, "admin_instancia.html", assignment=assignment, course=course,
         n_entregas=n_entregas, items=items, puntaje_total=items_puntaje_total(items),
-        vinculo_campus=bool(lti_storage.servicios_de_instancia(aid)),
+        vinculo_campus=lti.habilitado() and bool(lti_storage.servicios_de_instancia(aid)),
+        pasos=pasos, avance=circ.resumen(pasos),
     )
 
 

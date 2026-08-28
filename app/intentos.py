@@ -5,9 +5,17 @@ lo motivó: la pantalla de vinculación de docentes es alcanzable desde un lanza
 campus, o sea desde afuera. Pero el login de siempre tiene el mismo problema y se arregla
 en el mismo lugar.
 
-**El freno real es por cuenta**: ocho intentos fallidos sobre el mismo usuario y esa
-cuenta queda en pausa quince minutos. Eso es lo que hace inviable adivinar una contraseña,
-y no depende de dónde venga el intento.
+**El freno nunca le cierra la puerta a quien sabe su contraseña.** Esto es deliberado y
+es la corrección de un error propio: en la primera versión el freno corría ANTES de
+verificar la clave, así que cualquiera que supiera un DNI —y los DNI circulan— podía
+dejar a esa persona quince minutos afuera de su propia cuenta, repitiéndolo para siempre.
+Un candado que un tercero puede cerrar desde afuera no es una defensa, es un ataque.
+
+Ahora la contraseña se verifica primero: si es correcta, se entra, punto. El contador solo
+frena intentos FALLIDOS, que es lo que hace inviable adivinar sin poder bloquear a nadie.
+Queda además un tope alto que corta antes de calcular el hash, para que nadie use el
+formulario como bomba de CPU; ese tope está tan por encima del uso normal que ninguna
+persona real lo alcanza.
 
 Por origen NO se bloquea, y es una decisión deliberada. La idea era frenar a quien barre
 muchos usuarios desde una misma conexión, pero un aula entera detrás de la salida a
@@ -29,7 +37,8 @@ from .db import get_db
 log = logging.getLogger("lidia.intentos")
 
 VENTANA = 15 * 60      # los intentos se olvidan a los 15 minutos
-TOPE_USUARIO = 8       # intentos fallidos sobre la misma cuenta
+TOPE_USUARIO = 8       # fallos sobre la misma cuenta: a partir de acá no se acierta más
+TOPE_ABUSO = 60        # fallos sobre la misma cuenta antes de ni siquiera calcular el hash
 AVISO_CUENTAS = 15     # cuentas distintas desde un origen: no bloquea, deja rastro
 
 
@@ -80,17 +89,29 @@ def origen(request) -> str:
     return request.client.host if request.client else "?"
 
 
-def bloqueado(login: str, ip: str) -> str:
-    """Devuelve el motivo si hay que frenar, o cadena vacía si puede intentar."""
+def abuso(login: str) -> bool:
+    """Tope duro, para cortar antes de gastar CPU en el hash. Muy por encima del uso real."""
     with get_db() as db:
         _limpiar(db)
-        if _fallos_de(db, login) >= TOPE_USUARIO:
-            return ("Demasiados intentos con ese usuario. Esperá unos minutos y volvé a "
-                    "probar, o pedile al equipo docente que te regenere la contraseña.")
+        return _fallos_de(db, login) >= TOPE_ABUSO
+
+
+def bloqueado(login: str, ip: str) -> str:
+    """Motivo del freno, o cadena vacía. Se consulta DESPUÉS de fallar la contraseña.
+
+    Nunca se llama antes de verificar la clave: hacerlo permitiría que un tercero deje
+    afuera a alguien con solo saber su usuario.
+    """
+    with get_db() as db:
+        _limpiar(db)
+        frenado = _fallos_de(db, login) >= TOPE_USUARIO
         cuentas = _cuentas_desde(db, ip)
     if cuentas >= AVISO_CUENTAS:
         log.warning("posible barrido de contraseñas: %s cuentas distintas fallando desde %s",
                     cuentas, ip)
+    if frenado:
+        return ("Demasiados intentos con ese usuario. Esperá unos minutos y volvé a "
+                "probar, o pedile al equipo docente que te regenere la contraseña.")
     return ""
 
 

@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Roboto+Slab:wght@400;500;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="{{ base }}/static/style.css?v=36">
+<link rel="stylesheet" href="{{ base }}/static/style.css?v=39">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='80' font-size='80'>🧠</text></svg>">
 </head>
 <body class="{% block bodyclass %}{% endblock %}">
@@ -134,6 +134,86 @@ document.querySelectorAll('input[type=file]').forEach(inp => {
     nombre.classList.toggle("elegido", n > 0);
   });
 });
+
+// Escuchar un texto en voz alta. Usa la síntesis del propio navegador: no hay servicio
+// externo, no hace falta clave, y el texto no sale de la máquina de quien lee.
+// Cualquier elemento con data-leer recibe su botón. Si el navegador no tiene voces en
+// español, el botón directamente no aparece: mejor nada que una voz en inglés leyendo
+// una devolución en castellano.
+(function () {
+  if (!("speechSynthesis" in window)) return;
+
+  // Voces de novedad de macOS: suenan a caricatura y no sirven para leer una devolución.
+  // Elegir por idioma a secas cae en una de estas, porque vienen primeras en la lista.
+  const NOVEDAD = /^(eddy|flo|grandma|grandpa|reed|rocko|sandy|shelley|bells|boing|bubbles|cellos|jester|organ|superstar|trinoids|whisper|wobble|zarvox|albert)/i;
+
+  // Voces conocidas por sonar bien, por plataforma, en orden de preferencia.
+  const BUENAS = [
+    /elena/i,                       // Windows/Edge, es-AR o es-ES natural
+    /paulina/i, /mónica|monica/i,   // macOS, las de calidad
+    /helena|laura|sabina|dalia/i,   // Windows
+    /google español/i,              // Chrome
+  ];
+
+  function puntaje(v) {
+    let p = 0;
+    if (NOVEDAD.test(v.name)) return -100;                 // descartada de hecho
+    if (/natural|neural|online|premium|enhanced/i.test(v.name)) p += 40;
+    BUENAS.forEach((re, i) => { if (re.test(v.name)) p += 30 - i * 2; });
+    const l = v.lang.toLowerCase();
+    if (l.startsWith("es-ar")) p += 20;                    // rioplatense, lo ideal
+    else if (/^es-(419|uy|cl|mx|us|co|pe)/.test(l)) p += 10;   // latinoamericana
+    else if (l.startsWith("es")) p += 4;                   // España
+    if (v.default) p += 1;
+    return p;
+  }
+
+  function vozEspañola() {
+    const vs = speechSynthesis.getVoices()
+      .filter(v => v.lang.toLowerCase().startsWith("es"))
+      .map(v => ({ v, p: puntaje(v) }))
+      .filter(x => x.p > 0)
+      .sort((a, b) => b.p - a.p);
+    return vs.length ? vs[0].v : null;
+  }
+
+  function montar() {
+    const voz = vozEspañola();
+    if (!voz) return;
+    document.querySelectorAll("[data-leer]").forEach(caja => {
+      if (caja.dataset.leerListo) return;
+      caja.dataset.leerListo = "1";
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "leer";
+      b.setAttribute("aria-label", "Escuchar este texto en voz alta");
+      b.title = "Escuchar";
+      b.textContent = "🔊";
+      b.addEventListener("click", () => {
+        if (speechSynthesis.speaking) {
+          speechSynthesis.cancel();
+          document.querySelectorAll("button.leer.sonando").forEach(x => x.classList.remove("sonando"));
+          return;
+        }
+        const texto = (caja.dataset.leer === "self" ? caja : caja).innerText
+          .replace(/🔊/g, "").trim();
+        if (!texto) return;
+        const u = new SpeechSynthesisUtterance(texto);
+        u.voice = voz; u.lang = voz.lang; u.rate = 1.0;
+        u.onend = () => b.classList.remove("sonando");
+        u.onerror = () => b.classList.remove("sonando");
+        b.classList.add("sonando");
+        speechSynthesis.speak(u);
+      });
+      caja.appendChild(b);
+    });
+  }
+
+  // Las voces pueden tardar en estar disponibles.
+  montar();
+  speechSynthesis.onvoiceschanged = montar;
+  window.addEventListener("beforeunload", () => speechSynthesis.cancel());
+})();
 
 // menús del encabezado: uno abierto por vez, y se cierran al hacer clic afuera
 document.querySelectorAll("details.nav-menu").forEach(menu => {

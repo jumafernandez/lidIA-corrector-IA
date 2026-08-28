@@ -1,0 +1,24 @@
+{# El camino de la cursada, de punta a punta. No explica: muestra dónde estás.
+   Lidia aparece solo cuando hay un próximo paso; cuando está todo hecho, se calla. #}
+{% macro circuito(pasos, resumen, base) %}
+{% from "_lidia.html" import lidia %}
+<section class="circuito">
+  {% if not resumen.completo %}
+    <div class="circuito-guia">
+      {{ lidia('still') }}
+      <p data-leer>{{ resumen.siguiente.voz }}
+      <a href="{{ base }}{{ resumen.siguiente.url }}">Ir a {{ resumen.siguiente.titulo|lower }} →</a></p>
+    </div>
+  {% endif %}
+  <ol class="pasos">
+    {% for p in pasos %}
+      <li class="paso {{ p.estado }}">
+        <a href="{{ base }}{{ p.url }}" title="{{ p.detalle }}">
+          <span class="paso-marca">{% if p.estado == 'hecho' %}✓{% else %}{{ loop.index }}{% endif %}</span>
+          <span class="paso-titulo">{{ p.titulo }}</span>
+        </a>
+      </li>
+    {% endfor %}
+  </ol>
+</section>
+{% endmacro %}

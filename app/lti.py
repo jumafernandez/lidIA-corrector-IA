@@ -267,6 +267,10 @@ def _resolver_usuario(datos: dict, custom: dict):
 @router.post("/launch")
 async def launch(request: Request):
     """Moodle nos devuelve el token firmado: acá se entra a LidIA."""
+    if not habilitado():
+        return _error(request, "La integración no está configurada",
+                      "Todavía no se conectó LidIA con el campus. Avisale al equipo docente.",
+                      "falta la librería, plataformas.json o la clave privada", 503)
     lanzamiento, salida = await _validar(request)
     if lanzamiento is None:
         return salida
@@ -359,6 +363,10 @@ async def deeplink(request: Request):
     Ese clic es el vínculo entre el curso del campus y la cursada de LidIA: no hay
     pantalla de configuración aparte ni nada que mantener sincronizado a mano.
     """
+    if not habilitado():
+        return _error(request, "La integración no está configurada",
+                      "Todavía no se conectó LidIA con el campus. Avisale al equipo docente.",
+                      "falta la librería, plataformas.json o la clave privada", 503)
     lanzamiento, salida = await _validar(request)
     if lanzamiento is None:
         return salida
@@ -426,6 +434,10 @@ def _guardar_dl(datos: dict, user_id: int, lanzamiento=None) -> str:
 @router.post("/deeplink/elegir")
 async def deeplink_elegir(request: Request):
     """El docente eligió: se arma la respuesta firmada que Moodle espera."""
+    if not habilitado():
+        return _error(request, "La integración no está configurada",
+                      "Todavía no se conectó LidIA con el campus. Avisale al equipo docente.",
+                      "falta la librería, plataformas.json o la clave privada", 503)
     form = await request.form()
     token = (form.get("token") or "").strip()
     aid = (form.get("instancia") or "").strip()
@@ -506,6 +518,10 @@ def _pedir_vinculo(request: Request, datos: dict, motivo: str = "", err: str = "
 @router.post("/vincular")
 async def vincular(request: Request):
     """Valida usuario y contraseña de LidIA y ata esa cuenta con la del campus."""
+    if not habilitado():
+        return _error(request, "La integración no está configurada",
+                      "Todavía no se conectó LidIA con el campus. Avisale al equipo docente.",
+                      "falta la librería, plataformas.json o la clave privada", 503)
     form = await request.form()
     token = (form.get("token") or "").strip()
     guardado = _almacen().get_value(f"dl-{token}")

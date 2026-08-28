@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_ui.html" import info %}
+{% from "_circuito.html" import circuito %}
 {% set tipo_nombre = {'abierto': 'Trabajo abierto', 'escrito': 'Examen escrito', 'choice': 'Multiple choice'}[assignment.tipo] %}
 {% set modelo_url = {
   'abierto': 'https://docs.google.com/document/d/1H21oa4SMEYxeGQyEo2xPlFnPwy-Bh9sT2jwb8GO1TUo/edit',
@@ -17,7 +18,9 @@
   📄 <a href="{{ modelo_url }}" target="_blank" rel="noopener">ver el modelo de documento para {{ tipo_nombre|lower }}</a></p>
 
 <form method="post" action="{{ base }}/admin/instancias/{{ assignment.id }}" enctype="multipart/form-data">
-  <section class="card">
+  {{ circuito(pasos, avance, base) }}
+
+<section class="card">
     <h2>Material de corrección</h2>
 
     <div class="campo">
