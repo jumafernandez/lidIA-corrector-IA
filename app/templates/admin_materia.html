@@ -8,13 +8,13 @@
 
 <section class="card">
   <div class="row-between">
-    <h2>Cursadas ({{ ediciones|length }})</h2>
-    <a class="btn small primary" href="{{ base }}/admin/cursos/nuevo?materia={{ materia.id }}">Nueva cursada</a>
+    <h2>Cursadas ({{ cursadas|length }})</h2>
+    {% if puede_crear(user) %}<a class="btn small primary" href="{{ base }}/admin/cursos/nuevo?materia={{ materia.id }}">Nueva cursada</a>{% endif %}
   </div>
   <table>
-    <thead><tr><th>Edición</th><th>Instancias</th><th>Estudiantes</th><th>Docentes</th><th>Estado</th><th></th></tr></thead>
+    <thead><tr><th>Cursada</th><th>Instancias</th><th>Estudiantes</th><th>Docentes</th><th>Estado</th><th></th></tr></thead>
     <tbody>
-    {% for e in ediciones %}
+    {% for e in cursadas %}
       <tr>
         <td><a href="{{ base }}/admin/cursos/{{ e.ed.id }}">{{ e.ed.etiqueta }}</a></td>
         <td>{{ e.n_inst }}</td>
@@ -30,12 +30,13 @@
   </table>
 </section>
 
+{% if puede_editar %}
 <form method="post" action="{{ base }}/admin/materias/{{ materia.id }}">
 <section class="card">
   <h2>Identidad</h2>
   <label>Nombre
-    <input name="name" value="{{ materia.name }}" required>
     {{ info("Sin año ni cuatrimestre. Renombrarla acá la cambia en todas sus cursadas, también en las cerradas.") }}
+        <input name="name" value="{{ materia.name }}" required>
   </label>
   <label style="font-weight: 400">
     <input type="checkbox" name="active" value="1" {{ 'checked' if materia.active }} style="width: auto; margin-right: 8px">
@@ -45,13 +46,16 @@
 
   <div class="savebar">
     <button type="submit" class="btn primary">Guardar</button>
-    {% if not ediciones %}
+    {% if not cursadas %}
       <button type="submit" name="action" value="eliminar" class="btn ghost" formnovalidate
               onclick="return confirm('¿Eliminar la materia «{{ materia.name }}»? No tiene cursadas, así que no se pierde ninguna entrega.')">Eliminar materia</button>
     {% else %}
-      <span class="muted small">No se puede eliminar: tiene {{ ediciones|length }} cursada{{ 's' if ediciones|length != 1 }}. Borralas primero, o si ya no se dicta destildá «En el plan».</span>
+      <span class="muted small">No se puede eliminar: tiene {{ cursadas|length }} cursada{{ 's' if cursadas|length != 1 }}. Borralas primero, o si ya no se dicta destildá «En el plan».</span>
     {% endif %}
   </div>
 </section>
 </form>
+{% else %}
+<p class="muted small">Esta materia también la dictan otros docentes: renombrarla se la cambiaría a ellos, así que la edita la coordinación.</p>
+{% endif %}
 {% endblock %}

@@ -80,7 +80,7 @@ def circuito(db, edicion, assignment=None) -> list:
               ficha,
               "Todavía no hay ninguna instancia de evaluación: un TP, un parcial, un "
               "trabajo final. Es lo que el estudiantado va a entregar."),
-        _paso("material", "Material", bool(con_material),
+        _paso("material", "Consigna", bool(con_material),
               _falta_material(db, assignment) if assignment else
               f"{len(con_material)} de {len(instancias)} con material completo", ficha,
               ((_falta_material(db, assignment) + ". Sin eso no sé contra qué corregir.")
@@ -150,3 +150,58 @@ def resumen(pasos: list) -> dict:
     actual = next((p for p in pasos if p["estado"] == ACTUAL), None)
     return {"hechos": len(hechos), "total": len(pasos), "siguiente": actual,
             "completo": actual is None}
+
+
+# --------------------------------------------------------------- consejo por pantalla
+#
+# El circuito de arriba vive en la ficha de una cursada, donde hay una sola a la vista.
+# En los listados no hay una cursada elegida, pero la persona igual está parada en algún
+# punto del camino, y cada pantalla es responsable de un tramo distinto. Esto busca, entre
+# las cursadas de quien mira, el primer paso pendiente que le corresponde a esa pantalla.
+#
+# No hay mensajes nuevos: se reusa la `voz` que cada paso ya tiene escrita. Si no falta
+# nada de lo que esa pantalla cubre, devuelve None y Lidia no aparece: el silencio es la
+# señal de que está todo hecho.
+
+TRAMOS = {
+    "cursos": ("programa", "docentes", "estudiantes", "instancia", "material", "activa"),
+    "materias": ("programa", "instancia"),
+    "instancias": ("instancia", "material", "activa"),
+    "estudiantes": ("estudiantes",),
+    "entregas": ("entregas", "corregidas"),
+}
+
+# Tope de cursadas que se recorren. Coordinación puede tener decenas y cada una cuesta
+# varias consultas; el consejo es una ayuda, no vale hacerle esperar el listado por él.
+TOPE_REVISADAS = 15
+
+
+def consejo(db, cursadas, pantalla: str):
+    """El primer paso pendiente que le toca a esta pantalla, o None si no hay ninguno.
+
+    `cursadas` son las ediciones visibles para quien mira, ya filtradas por permisos.
+    Devuelve {"voz", "url", "titulo", "cursada"} listo para el globo.
+    """
+    claves = TRAMOS.get(pantalla)
+    if not claves:
+        return None
+    for ed in list(cursadas)[:TOPE_REVISADAS]:
+        # Solo el PRIMER paso pendiente, no cualquiera del tramo: el circuito es ordenado,
+        # y hablar de las entregas mientras falta el material haría decir «ya está todo
+        # listo de tu lado» a una cursada que todavía no puede corregir nada.
+        paso = next((p for p in circuito(db, ed) if not p["listo"]), None)
+        if paso and paso["clave"] in claves:
+            return {"voz": paso["voz"], "url": paso["url"], "titulo": paso["titulo"],
+                    "cursada": f"{ed['materia']} {ed['etiqueta']}"}
+    return None
+
+
+def consejo_sin_cursadas(puede_crear: bool) -> dict:
+    """Qué decir cuando la persona todavía no tiene ninguna cursada de la que hablar."""
+    if puede_crear:
+        return {"voz": "Todavía no tenés ninguna cursada. Creá la primera y te voy marcando "
+                       "qué falta en cada paso, hasta que puedas recibir entregas.",
+                "url": "/admin/cursos/nuevo", "titulo": "Nueva cursada", "cursada": ""}
+    return {"voz": "Todavía no te asignaron ninguna cursada. En cuanto la coordinación te sume "
+                   "a una, acá vas a ver qué falta configurar.",
+            "url": "", "titulo": "", "cursada": ""}

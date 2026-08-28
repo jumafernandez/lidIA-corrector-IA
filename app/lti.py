@@ -28,7 +28,7 @@ import pathlib
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from . import auth, intentos, lti_storage
+from . import auth, claves, intentos, lti_storage
 from .db import (can_access_edition, get_assignment, get_db, get_edition,
                  is_enrolled, utcnow)
 
@@ -677,11 +677,15 @@ async def importar_confirmar(request: Request, cid: int):
             if not fila:
                 # Sin contraseña a propósito: entran por el campus y no la necesitan.
                 # Si alguna vez quieren entrar directo, la piden por correo.
+                # Sin contraseña utilizable: quien llega del campus entra por el
+                # lanzamiento, y si alguna vez quiere entrar derecho a LidIA pide su enlace.
+                # Un hash vacío es peligroso: según con qué se lo compare, podría validar.
                 uid = db.execute(
-                    "INSERT INTO users (login, password_hash, initial_password, full_name,"
+                    "INSERT INTO users (login, password_hash, full_name,"
                     " email, role, active, created_at)"
-                    " VALUES (?, '', NULL, ?, ?, 'student', 1, ?)",
-                    (dni, _apellido_nombre(m["nombre"]), m["email"], utcnow()),
+                    " VALUES (?, ?, ?, ?, 'student', 1, ?)",
+                    (dni, claves.clave_inutilizable(), _apellido_nombre(m["nombre"]),
+                     m["email"], utcnow()),
                 ).lastrowid
                 creados += 1
             else:

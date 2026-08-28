@@ -4,7 +4,7 @@
 {% block content %}
 <p class="crumbs"><a href="{{ base }}/admin/cursos/{{ course.id }}">← {{ course.materia }} {{ course.etiqueta }}</a></p>
 <h1>Programa de la cursada
-  {{ info("El programa es de esta cursada, no de la materia: cambia entre ediciones, y con él cambian
+  {{ info("El programa es de esta cursada, no de la materia: cambia entre cursadas, y con él cambian
   los contenidos, la bibliografía y el equipo docente. Lidia lo usa como contexto en todas las
   instancias de evaluación de la cursada, para situar sus comentarios en las unidades y la bibliografía
   que el estudiantado efectivamente cursó, y para no reclamar temas que el curso no cubrió. No es
@@ -21,7 +21,14 @@
   {% endif %}
   <input type="file" name="archivo" accept=".pdf,.docx,.txt,.md">
   <p class="muted small">PDF, DOCX, TXT o MD — el programa tal como lo aprobó el Consejo.
-  {{ info("LidIA extrae el texto del archivo para dárselo a Lidia como contexto. El documento original sigue siendo el de siempre: acá no se guarda ni se reemplaza.") }}</p>
+  <strong>Si lo tenés en Word, subí el .docx</strong>: sale mejor.
+  {{ info("LidIA extrae el texto del archivo para dárselo a Lidia como contexto. El documento
+  original sigue siendo el de siempre: acá no se guarda ni se reemplaza.
+
+  Por qué el DOCX sale mejor: un Word guarda los párrafos y el encabezado como tales, así que se
+  leen sin más. Un PDF no guarda nada de eso —son órdenes de dibujar texto en una posición—, y
+  entonces los párrafos y el membrete hay que deducirlos de dónde quedó cada renglón. Se hace, y
+  para este programa funciona, pero es reconstrucción y puede equivocarse.") }}</p>
   <button type="submit" class="btn primary">{{ 'Subir y reemplazar' if course.programa else 'Subir programa' }}</button>
 </section>
 </form>

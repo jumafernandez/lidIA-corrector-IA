@@ -4,6 +4,17 @@
 {% block content %}
 <p class="crumbs"><a href="{{ base }}/admin/entregas">← Entregas</a></p>
 <h1>Entrega final de {{ owner.full_name }}</h1>
+{% if sub.alerta %}
+<div class="flash bad">⚠ <strong>El material entregado contenía instrucciones dirigidas al corrector.</strong>
+  {{ sub.alerta }}<br>
+  <span class="small">La devolución de abajo se generó igual, pero mirala con esto en mente: puede haber
+  sido un intento de influir en la corrección.</span></div>
+{% endif %}
+{% if sub.repo_url %}
+<p class="muted small">📦 Repositorio que declaró:
+  <a href="{{ sub.repo_url }}" target="_blank" rel="noopener noreferrer">{{ sub.repo_url }}</a>
+  {% if repo_leido %}<br><span class="muted small">Lidia leyó {{ repo_leido }}</span>{% endif %}</p>
+{% endif %}
 {% if sub.sin_propuesta %}
 <div class="flash warn">Entregada <strong>sin adjuntar la propuesta aprobada</strong>. Lidia lo sabía
 y no evaluó la coherencia con lo propuesto: ese criterio lo tenés que mirar vos.</div>
@@ -33,9 +44,9 @@ y no evaluó la coherencia con lo propuesto: ese criterio lo tenés que mirar vo
         <textarea name="feedback" rows="22">{{ sub.final_feedback_md or sub.ai_feedback_md }}</textarea>
         <div class="ajustes" style="margin-top: 14px">
           <label>Nota (0 a 10, opcional)
-            <input name="nota" inputmode="decimal" style="max-width: 110px"
-                   value="{{ '' if sub.nota is none else ('%g' % sub.nota) }}" placeholder="—">
             {{ info("En trabajos abiertos Lidia no sugiere nota: la ponés vos. En exámenes y multiple choice sugiere una en la corrección, revisala antes de firmar. La nota se exporta al CSV de notas de la cursada.") }}
+        <input name="nota" inputmode="decimal" style="max-width: 110px"
+                   value="{{ '' if sub.nota is none else ('%g' % sub.nota) }}" placeholder="—">
           </label>
         </div>
         <div class="row-gap">

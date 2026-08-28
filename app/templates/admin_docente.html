@@ -8,9 +8,9 @@
   <span class="pill pill-mini {{ 'pill-ok' if doc.active else 'pill-warn' }}">{{ 'Habilitado' if doc.active else 'Deshabilitado' }}</span></h1>
 <p class="muted">Usuario {{ doc.login }} · alta {{ doc.created_at|fecha }}</p>
 
-{% if doc.initial_password %}
-<p class="clave-inicial">🔑 Contraseña inicial: <code>{{ doc.initial_password }}</code> —
-entregásela por un canal seguro. Deja de mostrarse cuando la cambie desde su cuenta.</p>
+{% if not (doc.email or '').strip() %}
+<div class="flash warn">Sin correo cargado no se le puede mandar el enlace para elegir contraseña,
+así que no va a poder entrar. Cargáselo acá abajo.</div>
 {% endif %}
 
 <section class="card">
@@ -42,9 +42,9 @@ entregásela por un canal seguro. Deja de mostrarse cuando la cambie desde su cu
       <button type="submit" class="btn {{ 'ghost' if doc.active else 'primary' }}">{{ 'Deshabilitar' if doc.active else 'Habilitar' }}</button>
     </form>
     {% endif %}
-    <form method="post" action="{{ base }}/admin/docentes/{{ doc.id }}" class="inline" data-confirm="¿Generar una nueva contraseña para {{ doc.full_name }}?">
+    <form method="post" action="{{ base }}/admin/docentes/{{ doc.id }}" class="inline" data-confirm="¿Mandarle a {{ doc.full_name }} un enlace para elegir contraseña?">
       <input type="hidden" name="action" value="reset_password">
-      <button type="submit" class="btn ghost">Regenerar contraseña</button>
+      <button type="submit" class="btn ghost">Mandar enlace de contraseña</button>
     </form>
     {% if doc.role != 'admin' %}
     <form method="post" action="{{ base }}/admin/docentes/{{ doc.id }}" class="inline"

@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Roboto+Slab:wght@400;500;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="{{ base }}/static/style.css?v=39">
+<link rel="stylesheet" href="{{ base }}/static/style.css?v=46">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='80' font-size='80'>🧠</text></svg>">
 </head>
 <body class="{% block bodyclass %}{% endblock %}">
@@ -25,8 +25,8 @@
             <div class="nav-panel">
               <a href="{{ base }}/admin/cursos">Todas las cursadas</a>
               <a href="{{ base }}/admin/instancias">Instancias de evaluación</a>
-              {% if user.role == 'admin' %}<a href="{{ base }}/admin/materias">Materias</a>{% endif %}
-              {% if user.role == 'admin' %}<a href="{{ base }}/admin/cursos/nuevo">+ Nueva edición</a>{% endif %}
+              {% if puede_crear(user) %}<a href="{{ base }}/admin/materias">Materias</a>{% endif %}
+              {% if puede_crear(user) %}<a href="{{ base }}/admin/cursos/nuevo">+ Nueva cursada</a>{% endif %}
               <a href="{{ base }}/admin/instancias/nueva">+ Nueva instancia</a>
             </div>
           </details>
@@ -214,6 +214,93 @@ document.querySelectorAll('input[type=file]').forEach(inp => {
   speechSynthesis.onvoiceschanged = montar;
   window.addEventListener("beforeunload", () => speechSynthesis.cancel());
 })();
+
+// Selector del equipo docente. Se busca en el servidor a partir de tres letras en vez de
+// traer la lista entera: con los docentes de toda la universidad, recorrer casillas deja
+// de ser viable. Cada elegido queda como un input oculto, que es lo mismo que mandaban
+// las casillas, así que el formulario no cambió del lado del servidor.
+document.querySelectorAll(".buscador-docentes").forEach(caja => {
+  const url = caja.dataset.url;
+  const lista = caja.querySelector("[data-elegidos]");
+  const busca = caja.querySelector("[data-busca]");
+  const sug = caja.querySelector("[data-sugerencias]");
+  const vacio = caja.querySelector("[data-vacio]");
+  let pedido = null;
+
+  const ids = () => Array.from(lista.children, li => li.dataset.id);
+  function revisarVacio() { vacio.hidden = lista.children.length > 0; }
+
+  function agregar(d) {
+    if (ids().includes(String(d.id))) return;
+    const li = document.createElement("li");
+    li.dataset.id = d.id;
+    const oculto = document.createElement("input");
+    oculto.type = "hidden"; oculto.name = "docentes"; oculto.value = d.id;
+    const nombre = document.createElement("span");
+    nombre.textContent = d.nombre;
+    const detalle = document.createElement("span");
+    detalle.className = "muted small";
+    detalle.textContent = d.login + (d.coord ? " · coordinación" : "") + (d.activo ? "" : " · deshabilitado");
+    const x = document.createElement("button");
+    x.type = "button"; x.className = "quitar"; x.textContent = "×";
+    x.setAttribute("aria-label", "Quitar a " + d.nombre);
+    li.append(oculto, nombre, detalle, x);
+    lista.appendChild(li);
+    revisarVacio();
+  }
+
+  lista.addEventListener("click", ev => {
+    if (!ev.target.classList.contains("quitar")) return;
+    ev.target.closest("li").remove();
+    revisarVacio();
+  });
+
+  function cerrar() { sug.hidden = true; sug.textContent = ""; }
+
+  async function buscar() {
+    const q = busca.value.trim();
+    if (q.length < 3) { cerrar(); return; }
+    if (pedido) pedido.abort();
+    pedido = new AbortController();
+    let datos;
+    try {
+      const r = await fetch(url + "?q=" + encodeURIComponent(q), { signal: pedido.signal });
+      datos = await r.json();
+    } catch (e) { return; }          // abortada por una tecla posterior: no es un error
+    const nuevos = datos.filter(d => !ids().includes(String(d.id)));
+    sug.textContent = "";
+    if (!nuevos.length) {
+      const li = document.createElement("li");
+      li.className = "sin-resultado muted small";
+      li.textContent = datos.length ? "Ya están todos los que coinciden." : "Nadie coincide con «" + q + "».";
+      sug.appendChild(li);
+    } else {
+      nuevos.forEach(d => {
+        const li = document.createElement("li");
+        li.tabIndex = 0;
+        li.innerHTML = "<span></span> <span class='muted small'></span>";
+        li.children[0].textContent = d.nombre;
+        li.children[1].textContent = d.login + (d.coord ? " · coordinación" : "") + (d.activo ? "" : " · deshabilitado");
+        const elegir = () => { agregar(d); busca.value = ""; cerrar(); busca.focus(); };
+        li.addEventListener("click", elegir);
+        li.addEventListener("keydown", ev => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); elegir(); } });
+        sug.appendChild(li);
+      });
+    }
+    sug.hidden = false;
+  }
+
+  let reloj;
+  busca.addEventListener("input", () => { clearTimeout(reloj); reloj = setTimeout(buscar, 200); });
+  busca.addEventListener("keydown", ev => {
+    if (ev.key === "Escape") { cerrar(); }
+    // Enter en el buscador enviaría el formulario entero sin querer.
+    if (ev.key === "Enter") { ev.preventDefault(); const p = sug.querySelector("li[tabindex]"); if (p) p.click(); }
+    if (ev.key === "ArrowDown") { const p = sug.querySelector("li[tabindex]"); if (p) { ev.preventDefault(); p.focus(); } }
+  });
+  document.addEventListener("click", ev => { if (!caja.contains(ev.target)) cerrar(); });
+  revisarVacio();
+});
 
 // menús del encabezado: uno abierto por vez, y se cierran al hacer clic afuera
 document.querySelectorAll("details.nav-menu").forEach(menu => {

@@ -1,25 +1,27 @@
 {% extends "base.html" %}
 {% block title %}Cursos{% endblock %}
+{% from "_consejo.html" import consejo %}
 {% block content %}
 <div class="row-between head">
   <h1>Cursos</h1>
   <span class="toolbar">
-    {% if user.role == 'admin' %}
+    {% if puede_crear(user) %}
     <a class="btn small" href="{{ base }}/admin/materias">Materias</a>
-    <a class="btn small primary" href="{{ base }}/admin/cursos/nuevo">Nueva edición</a>
+    <a class="btn small primary" href="{{ base }}/admin/cursos/nuevo">Nueva cursada</a>
     {% endif %}
   </span>
 </div>
-<p class="muted small guia">Cada fila es una <strong>cursada</strong>: una edición de su materia. Los estudiantes,
-los docentes y las instancias son propios de cada edición.</p>
+<p class="muted small guia">Cada fila es una <strong>cursada</strong>: un dictado concreto de su materia.
+Los estudiantes, los docentes y las instancias son propios de cada cursada.</p>
+{{ consejo(aviso, base) }}
 
 <section class="card">
   <table>
-    <thead><tr><th>Edición</th><th>Docentes</th><th>Instancias</th><th>Estudiantes</th><th>Finales por revisar</th><th>Estado</th><th></th></tr></thead>
+    <thead><tr><th>Cursada</th><th>Docentes</th><th>Instancias</th><th>Estudiantes</th><th>Finales por revisar</th><th>Estado</th><th></th></tr></thead>
     <tbody>
     {% for g in grupos %}
       <tr class="grupo"><th colspan="7">{{ g.materia }}</th></tr>
-      {% for r in g.ediciones %}
+      {% for r in g.cursadas %}
       <tr>
         <td><a href="{{ base }}/admin/cursos/{{ r.c.id }}"><b>{{ r.c.etiqueta }}</b></a></td>
         <td class="muted small">{% for d in r.docentes %}{{ d.full_name }}{{ ' · ' if not loop.last }}{% else %}—{% endfor %}</td>
@@ -41,7 +43,7 @@ los docentes y las instancias son propios de cada edición.</p>
       </tr>
       {% endfor %}
     {% else %}
-      <tr><td colspan="7" class="muted">{% if user.role == 'admin' %}Todavía no hay cursadas. Creá la primera con «Nueva edición».{% else %}No tenés cursadas asignadas — pedile a la coordinación que te asigne.{% endif %}</td></tr>
+      <tr><td colspan="7" class="muted">{% if user.role == 'admin' %}Todavía no hay cursadas. Creá la primera con «Nueva cursada».{% elif puede_crear(user) %}Todavía no tenés cursadas. Creá la primera con «Nueva cursada», o pedile a la coordinación que te asigne a una que ya exista.{% else %}No tenés cursadas asignadas — pedile a la coordinación que te asigne.{% endif %}</td></tr>
     {% endfor %}
     </tbody>
   </table>

@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Elegir contraseña{% endblock %}
+{% block bodyclass %}login-body{% endblock %}
+{% block topbar %}{% endblock %}
+{% block content %}
+{% from "_lidia.html" import lidia %}
+<div class="login-card2">
+  {{ lidia('greet') }}
+  <h1>{{ 'Bienvenido a LidIA' if primera else 'Elegí tu contraseña nueva' }}</h1>
+  <p class="muted small">{% if primera %}Tu cuenta es <strong>{{ quien.login }}</strong>. Elegí una
+  contraseña para entrar.{% else %}Estás cambiando la contraseña de
+  <strong>{{ quien.login }}</strong>.{% endif %} Al menos 8 caracteres.</p>
+  <form method="post" action="{{ base }}/clave/{{ token }}">
+    <label>Contraseña nueva
+      <input type="password" name="password" required minlength="8" autofocus autocomplete="new-password">
+    </label>
+    <label>Repetila
+      <input type="password" name="password2" required minlength="8" autocomplete="new-password">
+    </label>
+    <button type="submit" class="btn primary">Guardar y entrar</button>
+  </form>
+</div>
+{% endblock %}

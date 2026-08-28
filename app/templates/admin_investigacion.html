@@ -35,8 +35,8 @@ consentimiento, y siempre sin nombre, DNI ni correo.</p>
     <div class="cifra"><strong>{{ r.utiles }}</strong><span>«me sirvió»</span></div>
   </div>
 
-  {% if r.ediciones_sin_fechas %}
-  <div class="flash warn">Hay {{ r.ediciones_sin_fechas }} cursada(s) activa(s) sin fechas de inicio
+  {% if r.cursadas_sin_fechas %}
+  <div class="flash warn">Hay {{ r.cursadas_sin_fechas }} cursada(s) activa(s) sin fechas de inicio
   y fin. Sin eso no se puede situar cada entrega dentro del cuatrimestre (si llegó la primera semana
   o la última). Se cargan en la ficha de cada cursada.</div>
   {% endif %}

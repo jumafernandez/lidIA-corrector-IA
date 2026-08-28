@@ -29,6 +29,16 @@ de la aplicación y reiniciando el servicio.</div>
       <input type="checkbox" name="enviar_nombre" value="1" {{ 'checked' if cfg.enviar_nombre == '1' }} style="width: auto; margin-right: 8px">
       Enviar el nombre de pila del estudiante al modelo (personaliza la devolución; desactivalo para anonimizar por completo)
     </label>
+    <label style="font-weight: 400">
+      <input type="checkbox" name="docentes_crean_materias" value="1"
+             {{ 'checked' if cfg.docentes_crean_materias == '1' }} style="width: auto; margin-right: 8px">
+      Los docentes pueden crear materias y cursadas
+      {{ info("Marcado, cada docente arma su cursada cuando la necesita y queda asignado a ella
+      automáticamente. Sin marcar, las crea solo la coordinación y el docente tiene que pedírselas
+      cada cuatrimestre. El riesgo de abrirlo es que la misma materia aparezca con nombres distintos
+      —«Aprendizaje Automático», «Aprend. Autom.», «ML»— porque el nombre de la materia lo comparten
+      todas sus cursadas. Renombrar y unificar sigue siendo solo de la coordinación.") }}
+    </label>
     <button type="submit" class="btn primary">Guardar configuración</button>
   </form>
 </section>

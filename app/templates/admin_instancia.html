@@ -2,11 +2,6 @@
 {% from "_ui.html" import info %}
 {% from "_circuito.html" import circuito %}
 {% set tipo_nombre = {'abierto': 'Trabajo abierto', 'escrito': 'Examen escrito', 'choice': 'Multiple choice'}[assignment.tipo] %}
-{% set modelo_url = {
-  'abierto': 'https://docs.google.com/document/d/1H21oa4SMEYxeGQyEo2xPlFnPwy-Bh9sT2jwb8GO1TUo/edit',
-  'escrito': 'https://docs.google.com/document/d/1eN_8oygHaKkfvPGsdLQdfuNBUicY7glYLxbPAc86fiQ/edit',
-  'choice': 'https://docs.google.com/document/d/1qSmIAGk6e7Yo1eu6KPaac0JXjkX20Ih0omDarjzOv90/edit',
-}[assignment.tipo] %}
 {% block title %}{{ assignment.name }} · {{ course.name }}{% endblock %}
 {% block content %}
 <p class="crumbs"><a href="{{ base }}/admin/cursos/{{ course.id }}">← {{ course.name }}</a></p>
@@ -14,24 +9,44 @@
   <span class="pill pill-mini">{{ tipo_nombre }}</span>
   <span class="pill pill-mini {{ 'pill-ok' if assignment.active else 'pill-warn' }}">{{ 'Activa' if assignment.active else 'Borrador' }}</span></h1>
 <p class="muted"><a href="{{ base }}/admin/instancias/{{ assignment.id }}/editar">✎ Editar nombre y tipo</a> ·
-  {{ n_entregas }} entrega{{ 's' if n_entregas != 1 }} hasta ahora ·
-  📄 <a href="{{ modelo_url }}" target="_blank" rel="noopener">ver el modelo de documento para {{ tipo_nombre|lower }}</a></p>
+  {{ n_entregas }} entrega{{ 's' if n_entregas != 1 }} hasta ahora</p>
+
+<section class="card carga-modelo">
+  <div class="row-between">
+    <h2>Armarla desde un documento
+      {{ info("Es la forma rápida: descargás la plantilla, la completás en Word con tu equipo y la subís
+      entera. El sistema la separa en los campos de abajo y te los deja para revisar antes de guardar.
+      Los títulos en mayúsculas de la plantilla son los que se usan para separarla: si faltan o están
+      renombrados, el documento se rechaza con el motivo en vez de adivinar dónde termina cada parte.") }}
+    </h2>
+    <a class="btn small primary" href="{{ base }}/admin/instancias/plantilla/{{ assignment.tipo }}.docx">Descargar plantilla (Word)</a>
+  </div>
+  <p class="muted small">Descargá la plantilla, completala en Word y subila acá.
+  <strong>Tiene que ser el archivo .docx</strong>: si lo pasás a PDF se pierde la estructura que
+  el sistema usa para separarlo.</p>
+  <form method="post" action="{{ base }}/admin/instancias/{{ assignment.id }}/cargar"
+        enctype="multipart/form-data" data-lidia="Estoy leyendo el documento">
+    <input type="file" name="archivo" accept=".docx" required>
+    <button type="submit" class="btn primary">Leer el documento</button>
+  </form>
+  <p class="muted small">No se guarda nada al leerlo: los campos quedan cargados abajo y vos confirmás.</p>
+</section>
+
+{% if sin_guardar %}
+<div class="flash warn">Esto es lo que leí del documento, <strong>todavía sin guardar</strong>.
+  Revisalo y usá «Guardar instancia» abajo para confirmarlo, o volvé a cargar la ficha para descartarlo.</div>
+{% endif %}
 
 <form method="post" action="{{ base }}/admin/instancias/{{ assignment.id }}" enctype="multipart/form-data">
   {{ circuito(pasos, avance, base) }}
 
 <section class="card">
-    <h2>Material de corrección</h2>
+    <h2>Consigna y material de corrección</h2>
 
     <div class="campo">
       <label>Consigna
         <textarea name="consigna" rows="10" placeholder="Qué tienen que entregar y en qué formato">{{ assignment.consigna }}</textarea>
       </label>
-      <details class="alt">
-        <summary>…o subila desde un archivo (PDF, DOCX, TXT o MD)</summary>
-        <input type="file" name="consigna_archivo" accept=".pdf,.docx,.txt,.md">
-        <p class="muted small">Al guardar, el texto extraído reemplaza el campo y queda editable.</p>
-      </details>
     </div>
 
     {% if assignment.tipo in ('escrito', 'choice') %}
@@ -86,15 +101,6 @@
       <div class="row-gap">
         <button type="button" class="btn small primary" id="agregar-item">+ Agregar pregunta</button>
       </div>
-      <details class="alt">
-        <summary>…o importá el examen desde un documento (PDF, DOCX, TXT o MD)</summary>
-        <input type="file" name="archivo" accept=".pdf,.docx,.txt,.md" form="form-importar">
-        <button type="submit" class="btn small" form="form-importar"
-                onclick="return confirm('Se van a leer las preguntas del documento y reemplazar las que estén cargadas. ¿Seguimos?')">Importar preguntas</button>
-        <p class="muted small">Lidia separa el documento en preguntas {{ 'con sus opciones y su clave' if es_choice else 'con su respuesta esperada' }}
-        y las deja acá para que las revises antes de guardar. Si el documento es solo el enunciado del parcial,
-        {{ 'la opción correcta queda vacía' if es_choice else 'las respuestas quedan vacías' }} para que la completes.</p>
-      </details>
     </div>
     {% endif %}
 
@@ -103,11 +109,6 @@
       <label>{{ 'Rúbrica (un criterio por línea)' if assignment.tipo == 'abierto' else 'Criterios de corrección (opcional)' }}
         <textarea name="rubrica" rows="9" placeholder="1. Criterio: qué se evalúa&#10;2. Criterio: qué se evalúa">{{ assignment.rubrica }}</textarea>
       </label>
-      <details class="alt">
-        <summary>…o subila desde un archivo (PDF, DOCX, TXT o MD)</summary>
-        <input type="file" name="rubrica_archivo" accept=".pdf,.docx,.txt,.md">
-        <p class="muted small">Al guardar, el texto extraído reemplaza el campo y queda editable.</p>
-      </details>
     </div>
     {% endif %}
 
@@ -116,7 +117,10 @@
   <section class="card">
     <h2>Ajustes</h2>
     <div class="ajustes">
-      <label>Indicaciones para Lidia (opcional)
+      <label>Cómo querés que corrija (opcional)
+        {{ info("Se suma a las instrucciones con las que Lidia corrige esta instancia, además de la
+        consigna y la rúbrica. Sirve para lo que no entra en un criterio de evaluación: en qué poner el
+        acento, qué tono usar en la devolución, qué exigir o qué dejar pasar. El estudiantado no lo ve.") }}
         <textarea name="prompt_extra" rows="3" placeholder="Ej.: si el trabajo no declara el uso de IA generativa en su desarrollo, pedirlo explícitamente">{{ assignment.prompt_extra }}</textarea>
       </label>
       {% if assignment.tipo != 'choice' %}
@@ -128,13 +132,19 @@
         <input name="max_preguntas" value="{{ assignment.max_preguntas }}">
       </label>
       <label>Integrantes por grupo (1–8)
-        <input name="max_integrantes" value="{{ assignment.max_integrantes }}">
         {{ info("1 = entrega individual. Con 2 o más, el estudiantado arma sus grupos y el cupo de prácticas pasa a ser del grupo, no de cada persona. Es un máximo: alguien puede entregar solo.") }}
+        <input name="max_integrantes" value="{{ assignment.max_integrantes }}">
       </label>
       {% endif %}
     </div>
     <label style="font-weight: 400; margin-bottom: 0">
-      <input type="checkbox" name="active" value="1" {{ 'checked' if assignment.active }} style="width: auto; margin-right: 8px">
+      {# Viene tildada mientras la instancia está recién creada —todavía sin consigna—, que es
+         cuando la intención es siempre activarla: se completa el material y con el mismo Guardar
+         queda visible. No hay riesgo de publicar algo a medias, porque al guardar se verifica el
+         material y, si falta, la deja en borrador avisando qué falta. Una vez que hay consigna la
+         casilla refleja el estado real y no propone nada. #}
+      <input type="checkbox" name="active" value="1"
+             {{ 'checked' if assignment.active or not assignment.consigna }} style="width: auto; margin-right: 8px">
       Activa — visible para los estudiantes del curso
       {% if assignment.tipo == 'choice' %}<span class="muted small">· entrega única, sin cupos de práctica</span>{% endif %}
     </label>
@@ -152,9 +162,6 @@
 </form>
 
 {% if assignment.tipo in ('escrito', 'choice') %}
-{# los controles de importación viven dentro del formulario principal y apuntan acá con form="form-importar" #}
-<form id="form-importar" method="post" action="{{ base }}/admin/instancias/{{ assignment.id }}/importar"
-      enctype="multipart/form-data" hidden data-lidia="Lidia está leyendo el examen"></form>
 
 <template id="molde-item">
   <div class="item">

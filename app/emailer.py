@@ -34,6 +34,11 @@ def desvio() -> str:
     return os.environ.get("SMTP_DESVIAR_A", "").strip()
 
 
+def url_absoluta(ruta: str = "") -> str:
+    """Dirección pública de una ruta, para los enlaces de los correos."""
+    return _app_url(ruta)
+
+
 def _app_url(ruta: str = "") -> str:
     """URL pública de LidIA, si está declarada. Sin ella los correos no llevan enlace."""
     base = os.environ.get("APP_URL", "").strip().rstrip("/")
@@ -139,6 +144,45 @@ def entrega_reabierta(alumno: str, course, assignment, motivo: str = "") -> tupl
 
 
 # ------------------------------------------------------------------ envío
+
+def invitacion(nombre: str, login: str, enlace: str) -> tuple:
+    """Primer ingreso: la cuenta existe y falta que su dueño le ponga contraseña."""
+    saludo = f"Hola{', ' + nombre if nombre else ''}:"
+    txt = (f"{saludo}\n\n"
+           f"Te damos de alta en LidIA, el sistema de entregas y devoluciones del LICDIA.\n\n"
+           f"Tu usuario es {login}. La contraseña la elegís vos con este enlace, que sirve una "
+           f"sola vez y vence en una semana.\n\n"
+           f"Si no lo usás a tiempo, pedí uno nuevo desde «¿Olvidaste tu contraseña?» "
+           f"en la pantalla de ingreso.")
+    html = (f"<p>{saludo}</p>"
+            f"<p>Te damos de alta en <strong>LidIA</strong>, el sistema de entregas y devoluciones "
+            f"del LICDIA.</p>"
+            f"<p>Tu usuario es <strong>{login}</strong>. La contraseña la elegís vos con este "
+            f"enlace, que sirve una sola vez y vence en una semana.</p>"
+            f"<p class=\"chico\">Si no lo usás a tiempo, pedí uno nuevo desde "
+            f"«¿Olvidaste tu contraseña?» en la pantalla de ingreso.</p>")
+    return _armar("Tu acceso a LidIA", "Bienvenido a LidIA",
+                  "Entregas y devoluciones · LICDIA", txt, html,
+                  enlace, "Elegir mi contraseña")
+
+
+def recuperacion(nombre: str, login: str, enlace: str) -> tuple:
+    """Olvido: alguien pidió volver a entrar y hay que dejarlo elegir una nueva."""
+    saludo = f"Hola{', ' + nombre if nombre else ''}:"
+    txt = (f"{saludo}\n\n"
+           f"Alguien pidió restablecer la contraseña de {login} en LidIA. Si fuiste vos, "
+           f"usá este enlace: sirve una sola vez y vence en dos horas.\n\n"
+           f"Si no fuiste vos, ignorá este mensaje. Tu contraseña actual sigue funcionando "
+           f"y nadie más puede usar el enlace.")
+    html = (f"<p>{saludo}</p>"
+            f"<p>Alguien pidió restablecer la contraseña de <strong>{login}</strong> en LidIA. "
+            f"Si fuiste vos, usá este enlace: sirve una sola vez y vence en dos horas.</p>"
+            f"<p class=\"chico\">Si no fuiste vos, ignorá este mensaje. Tu contraseña actual "
+            f"sigue funcionando y nadie más puede usar el enlace.</p>")
+    return _armar("Restablecer tu contraseña de LidIA", "Restablecer contraseña",
+                  "Entregas y devoluciones · LICDIA", txt, html,
+                  enlace, "Elegir una contraseña nueva")
+
 
 def enviar(to_addr: str, mensaje: tuple) -> tuple[bool, str]:
     """Manda un mensaje ya armado. Devuelve (enviado, detalle); nunca lanza."""

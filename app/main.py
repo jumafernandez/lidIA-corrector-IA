@@ -12,22 +12,26 @@ from zoneinfo import ZoneInfo
 
 import markdown as md_lib
 from fastapi import FastAPI, File, Form, Request, UploadFile
-from fastapi.responses import PlainTextResponse, HTMLResponse, RedirectResponse, Response, StreamingResponse
+from fastapi.responses import (PlainTextResponse, HTMLResponse, JSONResponse, RedirectResponse,
+                               Response, StreamingResponse)
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import auth, circuito as circ, intentos, investigacion, lti, lti_storage
+from . import (auth, circuito as circ, claves, intentos, investigacion, lti, lti_storage,
+               modelos, repos)
 from .db import (all_courses, ventana_entrega, fecha_corta, assignment_cfg, assignment_items, can_access_edition,
+                 inscripcion_habilitada,
                  grupo_de, grupos_de_instancia, miembros_de,
                  course_editions, edition_assignments, edition_teachers, enroll, final_activa,
                  get_assignment, get_config, get_course, get_db, get_edition, init_db,
                  is_enrolled, items_puntaje_total, practicas_usadas, preguntas_usadas,
-                 set_config, staff_editions, student_editions, teacher_edition_ids, utcnow)
+                 set_config, staff_editions, student_editions, teacher_edition_ids,
+                 utcnow, visible_courses)
 from . import emailer
 from .emailer import desvio, smtp_configured
 from .extract import ExtractionError, extract_text
-from .llm import (LLMError, answer_question, generate_feedback, model_info, split_items,
-                  transcribe_images)
+from .llm import (LLMError, answer_question, generate_feedback, model_info,
+                  revisar_integridad, split_items, transcribe_images)
 
 BASE_DIR = os.path.dirname(__file__)
 # prefijo bajo el que se sirve la app detrás del proxy (ej.: /entregas). Vacío en local.
@@ -110,6 +114,7 @@ async def origen_confiable(request: Request, call_next):
 def _startup():
     init_db()
     lti_storage.init_lti_db()
+    claves.init_claves_db()
     intentos.init_intentos_db()
 
 
@@ -135,6 +140,107 @@ def _require(request: Request, *roles: str):
     if user["role"] not in roles:
         return None, redirect("/")
     return user, None
+
+
+def puede_crear_materias(user) -> bool:
+    """¿Este usuario puede dar de alta materias y cursadas?
+
+    La coordinación siempre. Los docentes, solo si la coordinación lo habilitó: es la
+    diferencia entre que cada docente arme su cursada cuando la necesita y que tenga que
+    pedirla todos los cuatrimestres. El riesgo de abrirlo es que aparezcan tres veces la
+    misma materia con nombres distintos; por eso es una decisión y no un valor fijo.
+    """
+    if not user:
+        return False
+    if user["role"] == "admin":
+        return True
+    if user["role"] != "docente":
+        return False
+    with get_db() as db:
+        return get_config(db).get("docentes_crean_materias", "1") == "1"
+
+
+def puede_ver_materia(db, user, mid: int) -> bool:
+    """¿Le corresponde ver la ficha de esta materia? Mismo criterio que el listado."""
+    if user["role"] == "admin":
+        return True
+    return any(m["id"] == mid for m in visible_courses(db, user))
+
+
+def puede_editar_materia(db, user, mid: int) -> bool:
+    """¿Puede cambiarle el nombre y la vigencia a esta materia?
+
+    Quien puede crear puede corregir lo que creó. El único límite es que la materia sea
+    suya: renombrarla la cambia en todas sus cursadas, así que un docente la edita solo
+    si todas las cursadas de esa materia son suyas —incluida la recién creada, que no
+    tiene ninguna—. La coordinación edita cualquiera.
+    """
+    if not puede_crear_materias(user):
+        return False
+    ids = teacher_edition_ids(db, user)
+    if ids is None:
+        return True
+    eds = course_editions(db, mid)
+    if not eds:
+        # Sin cursadas no hay «todas suyas» que valga: vale haberla creado.
+        return get_course(db, mid)["creado_por"] == user["id"]
+    return all(ed["id"] in ids for ed in eds)
+
+# Se registra acá y no arriba porque la función se define en este punto del módulo.
+templates.env.globals["puede_crear"] = puede_crear_materias
+
+
+def _repo_leido(sub) -> str:
+    """Qué se leyó del repositorio al corregir, para que el docente sepa contra qué se corrigió.
+
+    Se guarda al momento de la entrega y no se vuelve a consultar: el repositorio cambia
+    después, y la devolución tiene que poder explicarse con lo que había entonces.
+    """
+    crudo = sub["repo_resumen"] if "repo_resumen" in sub.keys() else ""
+    if not (crudo or "").strip():
+        return ""
+    try:
+        return repos.resumen_legible(json.loads(crudo))
+    except (ValueError, TypeError):
+        return ""
+
+
+def _mandar_enlace(fila, volver: str, motivo: str = "olvido"):
+    """Le manda a esta persona el enlace para elegir contraseña.
+
+    Reemplaza al viejo «restablecer»: la coordinación ya no genera ni conoce contraseñas,
+    solo dispara el correo. Si la cuenta no tiene correo cargado no hay a dónde mandarlo,
+    y eso hay que decirlo en vez de fingir que se mandó.
+    """
+    correo = (fila["email"] or "").strip()
+    if not correo:
+        return redirect(volver, err=(
+            f"{fila['full_name']} no tiene correo cargado, así que no hay a dónde mandarle "
+            "el enlace. Cargáselo y volvé a intentar."))
+    token = claves.crear(fila["id"], motivo)
+    if not token:
+        return redirect(volver, err="Ya se mandaron varios enlaces a esta cuenta hace poco. "
+                                    "Esperá un rato antes de pedir otro.")
+    enlace = emailer.url_absoluta(f"/clave/{token}")
+    armar = emailer.invitacion if motivo == "alta" else emailer.recuperacion
+    ok, detalle = emailer.enviar(correo, armar(first_name(fila["full_name"]), fila["login"], enlace))
+    if not ok:
+        return redirect(volver, err=f"No se pudo enviar el correo: {detalle}")
+    destino = emailer.desvio() or correo
+    return redirect(volver, msg=f"Enlace enviado a {destino}. Vence en "
+                                f"{'una semana' if motivo == 'alta' else 'dos horas'}.")
+
+
+def _consejo(db, user, pantalla: str):
+    """Lo que Lidia tiene para decir en esta pantalla, o None si no falta nada.
+
+    Se calcula acá y no en la plantilla porque necesita la base. Cuando la persona no
+    tiene ninguna cursada no hay circuito que mirar, así que se responde por el otro lado.
+    """
+    cursadas = staff_editions(db, user)
+    if not cursadas:
+        return circ.consejo_sin_cursadas(puede_crear_materias(user))
+    return circ.consejo(db, cursadas, pantalla)
 
 
 def _scope_ids(db, user):
@@ -314,6 +420,55 @@ def login(request: Request, login_id: str = Form(...), password: str = Form(...)
     return resp
 
 
+@app.get("/clave", response_class=HTMLResponse)
+def clave_pedir(request: Request):
+    return render(request, "clave_pedir.html")
+
+
+@app.post("/clave")
+def clave_enviar(request: Request, dato: str = Form(...)):
+    """Manda el enlace para elegir contraseña.
+
+    La respuesta es siempre la misma, exista o no la cuenta: si dijera «ese DNI no está»,
+    cualquiera podría averiguar quién tiene cuenta probando números de documento.
+    """
+    mismo = ("Si esa cuenta existe, le mandamos un correo con el enlace para elegir una "
+             "contraseña nueva. Revisá también el correo no deseado.")
+    fila = claves.buscar_cuenta(dato)
+    if fila and (fila["email"] or "").strip():
+        token = claves.crear(fila["id"], "olvido")
+        if token:
+            enlace = emailer.url_absoluta(f"/clave/{token}")
+            emailer.enviar(fila["email"], emailer.recuperacion(
+                first_name(fila["full_name"]), fila["login"], enlace))
+    return redirect("/login", msg=mismo)
+
+
+@app.get("/clave/{token}", response_class=HTMLResponse)
+def clave_fijar(request: Request, token: str):
+    fila = claves.usuario_de(token)
+    if not fila:
+        return redirect("/clave", err=(
+            "Ese enlace ya se usó o venció. Pedí uno nuevo y usalo apenas te llegue."))
+    return render(request, "clave_fijar.html", token=token, quien=fila,
+                  primera=fila["motivo"] == "alta")
+
+
+@app.post("/clave/{token}")
+def clave_guardar(request: Request, token: str, password: str = Form(...),
+                  password2: str = Form(...)):
+    fila = claves.usuario_de(token)
+    if not fila:
+        return redirect("/clave", err="Ese enlace ya se usó o venció. Pedí uno nuevo.")
+    if password != password2:
+        return redirect(f"/clave/{token}", err="Las dos contraseñas no coinciden.")
+    if len(password) < 8:
+        return redirect(f"/clave/{token}", err="La contraseña tiene que tener al menos 8 caracteres.")
+    if not claves.consumir(token, auth.hash_password(password)):
+        return redirect("/clave", err="Ese enlace ya se usó o venció. Pedí uno nuevo.")
+    return redirect("/login", msg="Listo, ya podés entrar con tu contraseña nueva.")
+
+
 @app.post("/logout")
 def logout(request: Request):
     # Las dos cookies apuntan a sesiones de la misma tabla: hay que invalidar las dos,
@@ -359,7 +514,7 @@ def cuenta_clave(
         return redirect("/cuenta", err="La contraseña nueva es igual a la actual.")
     with get_db() as db:
         db.execute(
-            "UPDATE users SET password_hash = ?, initial_password = NULL WHERE id = ?",
+            "UPDATE users SET password_hash = ? WHERE id = ?",
             (auth.hash_password(nueva), user["id"]),
         )
     return redirect("/cuenta", msg="Contraseña actualizada.")
@@ -545,8 +700,8 @@ async def panel_grupo(request: Request, aid: int):
             return redirect("/panel")
         if assignment["max_integrantes"] < 2:
             return redirect(volver, err="Esta instancia es de entrega individual.")
-        if not user["active"]:
-            return redirect(volver, err="Tu usuario no está habilitado.")
+        if not inscripcion_habilitada(db, user["id"], ed["id"]):
+            return redirect(volver, err="Tu inscripción a esta cursada está deshabilitada.")
 
         actual = grupo_de(db, user["id"], aid)
         if actual and db.execute(
@@ -613,6 +768,7 @@ async def entregar(
     origen: str = Form(""),
     fotos_n: int = Form(0),
     propuesta: UploadFile | None = File(None),
+    repo: str = Form(""),
 ):
     user, resp = _require(request, "student")
     if resp:
@@ -620,8 +776,6 @@ async def entregar(
     if kind not in ("practica", "final"):
         return redirect("/panel", err="Tipo de entrega inválido.")
     back = f"/panel/instancia/{assignment_id}"
-    if not user["active"]:
-        return redirect(back, err="Tu usuario no está habilitado para nuevas entregas.")
 
     with get_db() as db:
         assignment = get_assignment(db, assignment_id)
@@ -629,6 +783,10 @@ async def entregar(
         if (not assignment or not assignment["active"] or not course["active"]
                 or not is_enrolled(db, user["id"], course["id"])):
             return redirect("/panel", err="Esa instancia de evaluación no está disponible.")
+        if not inscripcion_habilitada(db, user["id"], course["id"]):
+            return redirect(back, err=(
+                "Tu inscripción a esta cursada está deshabilitada, así que no podés presentar "
+                "nada nuevo acá. Hablá con el equipo docente de la cursada."))
         cfg = assignment_cfg(db, course, assignment)
         if kind == "final" and not assignment["requiere_revision"]:
             return redirect(back, err="Esta instancia es solo de práctica: no tiene entrega final.")
@@ -675,6 +833,24 @@ async def entregar(
     sin_propuesta = bool(assignment["pide_propuesta"] and not propuesta_text.strip())
     cfg["propuesta"] = propuesta_text
 
+    # El repositorio que el estudiante declaró. Si falla se avisa y no se corrige: el
+    # enlace roto es del estudiante y lo puede arreglar, y corregir sin el código cuando
+    # la instancia lo pide daría una devolución sobre la mitad del trabajo.
+    repo_url = (repo or "").strip()
+    repo_resumen = ""
+    if assignment["pide_repo"] and repo_url:
+        try:
+            cfg["repo_texto"], resumen = repos.traer(repo_url)
+            repo_resumen = json.dumps(resumen, ensure_ascii=False)
+        except repos.RepoError as exc:
+            return redirect(back, err=f"No se pudo leer el repositorio: {exc}")
+
+    # Revisión de integridad: una pasada aparte, solo sobre el material del estudiante.
+    # Si el mismo llamado que puede ser manipulado fuera el que reporta la manipulación,
+    # el reporte no valdría nada.
+    alerta = revisar_integridad("\n\n".join(
+        x for x in (work_text, propuesta_text, cfg.get("repo_texto", "")) if x))
+
     tele = {}
     try:
         feedback, model, tele = generate_feedback(
@@ -695,13 +871,14 @@ async def entregar(
             "INSERT INTO submissions (user_id, assignment_id, kind, status, original_filename, work_text,"
             " text_chars, truncated, ai_feedback_md, model_used, error, created_at,"
             " grupo_id, cfg_snapshot, tokens_in, tokens_out, latencia_ms, finish_reason,"
-            " propuesta_text, sin_propuesta)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " propuesta_text, sin_propuesta, repo_url, repo_resumen, alerta)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (user["id"], assignment_id, kind, status, filename, work_text, len(work_text), int(truncated),
              feedback, model, error, utcnow(),
              grupo["id"] if grupo else None, json.dumps(cfg, ensure_ascii=False),
              tele.get("tokens_in"), tele.get("tokens_out"), tele.get("latencia_ms"),
-             tele.get("finish_reason"), propuesta_text, int(sin_propuesta)),
+             tele.get("finish_reason"), propuesta_text, int(sin_propuesta),
+             repo_url, repo_resumen, alerta),
         )
         sid = cur.lastrowid
     if kind == "final":
@@ -732,12 +909,14 @@ async def entregar_fotos(
     back = f"/panel/instancia/{assignment_id}"
     if kind not in ("practica", "final"):
         return redirect("/panel", err="Tipo de entrega inválido.")
-    if not user["active"]:
-        return redirect(back, err="Tu usuario no está habilitado para nuevas entregas.")
 
     with get_db() as db:
         assignment = get_assignment(db, assignment_id)
         course = get_edition(db, assignment["edition_id"]) if assignment else None
+        if course and not inscripcion_habilitada(db, user["id"], course["id"]):
+            return redirect(back, err=(
+                "Tu inscripción a esta cursada está deshabilitada, así que no podés presentar "
+                "nada nuevo acá. Hablá con el equipo docente de la cursada."))
         if (not assignment or not assignment["active"] or not course["active"]
                 or not is_enrolled(db, user["id"], course["id"])):
             return redirect("/panel", err="Esa instancia de evaluación no está disponible.")
@@ -847,7 +1026,8 @@ def entrega(request: Request, sid: int):
             db.execute("UPDATE submissions SET first_viewed_at = ? WHERE id = ?", (utcnow(), sub["id"]))
     maxq = assignment["max_preguntas"]
     puede_preguntar = (
-        user["role"] == "student" and user["active"] and sub["kind"] == "practica" and len(qs) < maxq
+        user["role"] == "student" and sub["kind"] == "practica" and len(qs) < maxq
+        and inscripcion_habilitada(db, user["id"], course["id"])
     )
     return render(
         request, "entrega.html", sub=sub, owner=owner, course=course, assignment=assignment,
@@ -895,12 +1075,13 @@ def pregunta(request: Request, sid: int, question: str = Form(...)):
         return redirect(f"/entrega/{sid}", err="Escribí una pregunta.")
     if len(question) > 2000:
         return redirect(f"/entrega/{sid}", err="La pregunta es demasiado larga (máx. 2000 caracteres).")
-    if not user["active"]:
-        return redirect(f"/entrega/{sid}", err="Tu usuario no está habilitado para nuevas consultas.")
     with get_db() as db:
         sub, assignment, course = _load_submission(db, sid)
         if not sub or sub["user_id"] != user["id"] or sub["kind"] != "practica":
             return redirect("/panel")
+        if not inscripcion_habilitada(db, user["id"], course["id"]):
+            return redirect(f"/entrega/{sid}",
+                            err="Tu inscripción a esta cursada está deshabilitada.")
         cfg = assignment_cfg(db, course, assignment)
         if preguntas_usadas(db, sid) >= assignment["max_preguntas"]:
             return redirect(f"/entrega/{sid}", err="Ya usaste todas las preguntas de esta entrega.")
@@ -974,7 +1155,10 @@ def admin_entregas(request: Request, curso: str | None = None):
             "practicas": sum(1 for r in rows if r["kind"] == "practica" and r["status"] == "ok"),
             "pendientes": sum(1 for r in rows if r["kind"] == "final" and r["status"] == "pendiente"),
         }
-    return render(request, "admin_entregas.html", rows=rows, stats=stats, cursos=cursos, curso_f=curso)
+    with get_db() as db:
+        aviso = _consejo(db, user, "entregas")
+    return render(request, "admin_entregas.html", rows=rows, stats=stats, cursos=cursos,
+                  curso_f=curso, aviso=aviso)
 
 
 @app.get("/admin/final/{sid}", response_class=HTMLResponse)
@@ -989,7 +1173,7 @@ def admin_final(request: Request, sid: int):
         owner = db.execute("SELECT * FROM users WHERE id = ?", (sub["user_id"],)).fetchone()
     return render(
         request, "admin_final.html", sub=sub, owner=owner, course=course,
-        assignment=assignment, smtp_ok=smtp_configured(),
+        assignment=assignment, repo_leido=_repo_leido(sub), smtp_ok=smtp_configured(),
     )
 
 
@@ -1025,7 +1209,7 @@ async def admin_final_post(request: Request, sid: int):
                 if not (0 <= nota <= 10):
                     return redirect(f"/admin/final/{sid}", err="La nota va de 0 a 10.")
             # cuánto se editó la propuesta de la IA: 0 = firmada tal cual, 1 = reescrita entera.
-            # Es la medición central del sistema y se calcula una sola vez, acá.
+            # Es la mcursada central del sistema y se calcula una sola vez, acá.
             propuesta = sub["ai_feedback_md"] or ""
             firmada = feedback.strip()
             ratio = None
@@ -1080,42 +1264,59 @@ def admin_cursos(request: Request):
     grupos = []
     for r in rows:
         if not grupos or grupos[-1]["materia"] != r["c"]["materia"]:
-            grupos.append({"materia": r["c"]["materia"], "materia_id": r["c"]["course_id"], "ediciones": []})
-        grupos[-1]["ediciones"].append(r)
-    return render(request, "admin_cursos.html", grupos=grupos, rows=rows)
+            grupos.append({"materia": r["c"]["materia"], "materia_id": r["c"]["course_id"], "cursadas": []})
+        grupos[-1]["cursadas"].append(r)
+    with get_db() as db:
+        aviso = _consejo(db, user, "cursos")
+    return render(request, "admin_cursos.html", grupos=grupos, rows=rows, aviso=aviso)
 
 
 @app.get("/admin/materias", response_class=HTMLResponse)
 def admin_materias(request: Request):
-    user, resp = _require(request, "admin")
+    user, resp = _require(request, *STAFF)
     if resp:
         return resp
+    if not puede_crear_materias(user):
+        return redirect("/admin/cursos", err=(
+            "La coordinación no habilitó que los docentes creen materias y cursadas. "
+            "Pedile a la coordinación que cree la que necesitás."))
     with get_db() as db:
         materias = []
-        for m in all_courses(db):
+        for m in visible_courses(db, user):
             eds = course_editions(db, m["id"])
             n_est = db.execute(
                 "SELECT COUNT(DISTINCT e.user_id) n FROM enrollments e "
                 "JOIN course_editions ed ON ed.id = e.edition_id WHERE ed.course_id = ?",
                 (m["id"],),
             ).fetchone()["n"]
-            materias.append({"m": m, "ediciones": eds, "n_est": n_est})
-    return render(request, "admin_materias.html", materias=materias)
+            materias.append({"m": m, "cursadas": eds, "n_est": n_est,
+                             "editable": puede_editar_materia(db, user, m["id"])})
+    with get_db() as db:
+        aviso = _consejo(db, user, "materias")
+    return render(request, "admin_materias.html", materias=materias, aviso=aviso)
 
 
 @app.get("/admin/materias/nueva", response_class=HTMLResponse)
 def admin_materia_nueva(request: Request):
-    user, resp = _require(request, "admin")
+    user, resp = _require(request, *STAFF)
     if resp:
         return resp
+    if not puede_crear_materias(user):
+        return redirect("/admin/cursos", err=(
+            "La coordinación no habilitó que los docentes creen materias y cursadas. "
+            "Pedile a la coordinación que cree la que necesitás."))
     return render(request, "admin_materia_nueva.html")
 
 
 @app.post("/admin/materias/crear")
 async def admin_materia_crear(request: Request):
-    user, resp = _require(request, "admin")
+    user, resp = _require(request, *STAFF)
     if resp:
         return resp
+    if not puede_crear_materias(user):
+        return redirect("/admin/cursos", err=(
+            "La coordinación no habilitó que los docentes creen materias y cursadas. "
+            "Pedile a la coordinación que cree la que necesitás."))
     form = await request.form()
     name = (form.get("name") or "").strip()
     if not name:
@@ -1124,22 +1325,31 @@ async def admin_materia_crear(request: Request):
         if db.execute("SELECT 1 FROM courses WHERE name = ?", (name,)).fetchone():
             return redirect("/admin/materias/nueva", err=f"Ya existe una materia «{name}».")
         mid = db.execute(
-            "INSERT INTO courses (name, active, created_at) VALUES (?, 1, ?)", (name, utcnow())
+            "INSERT INTO courses (name, active, created_at, creado_por) VALUES (?, 1, ?, ?)",
+            (name, utcnow(), user["id"])
         ).lastrowid
     return redirect(f"/admin/materias/{mid}", msg="Materia creada. Ahora dale su primera cursada.")
 
 
 @app.get("/admin/materias/{mid}", response_class=HTMLResponse)
 def admin_materia(request: Request, mid: int):
-    user, resp = _require(request, "admin")
+    user, resp = _require(request, *STAFF)
     if resp:
         return resp
+    if not puede_crear_materias(user):
+        return redirect("/admin/cursos", err=(
+            "La coordinación no habilitó que los docentes creen materias y cursadas. "
+            "Pedile a la coordinación que cree la que necesitás."))
     with get_db() as db:
         materia = get_course(db, mid)
-        if not materia:
+        if not materia or not puede_ver_materia(db, user, mid):
             return redirect("/admin/materias")
+        editable = puede_editar_materia(db, user, mid)
         eds = []
+        # Una materia puede tener cursadas de varios docentes: cada uno ve las suyas.
         for ed in course_editions(db, mid):
+            if not can_access_edition(db, user, ed["id"]):
+                continue
             eds.append({
                 "ed": ed,
                 "docentes": edition_teachers(db, ed["id"]),
@@ -1150,19 +1360,24 @@ def admin_materia(request: Request, mid: int):
                     "SELECT COUNT(*) n FROM assignments WHERE edition_id = ?", (ed["id"],)
                 ).fetchone()["n"],
             })
-    return render(request, "admin_materia.html", materia=materia, ediciones=eds)
+    return render(request, "admin_materia.html", materia=materia, cursadas=eds,
+                  puede_editar=editable)
 
 
 @app.post("/admin/materias/{mid}")
 async def admin_materia_post(request: Request, mid: int):
-    user, resp = _require(request, "admin")
+    user, resp = _require(request, *STAFF)
     if resp:
         return resp
     form = await request.form()
     with get_db() as db:
         materia = get_course(db, mid)
-        if not materia:
+        if not materia or not puede_ver_materia(db, user, mid):
             return redirect("/admin/materias")
+        if not puede_editar_materia(db, user, mid):
+            return redirect(f"/admin/materias/{mid}", err=(
+                "Esta materia tiene cursadas de otros docentes: renombrarla se las "
+                "cambiaría a ellos también. La edita la coordinación."))
         if form.get("action") == "eliminar":
             n = db.execute("SELECT COUNT(*) n FROM course_editions WHERE course_id = ?", (mid,)).fetchone()["n"]
             if n:
@@ -1189,34 +1404,42 @@ async def admin_materia_post(request: Request, mid: int):
 
 @app.get("/admin/cursos/nuevo", response_class=HTMLResponse)
 def admin_curso_nuevo(request: Request, materia: str | None = None):
-    user, resp = _require(request, "admin")
+    user, resp = _require(request, *STAFF)
     if resp:
         return resp
+    if not puede_crear_materias(user):
+        return redirect("/admin/cursos", err=(
+            "La coordinación no habilitó que los docentes creen materias y cursadas. "
+            "Pedile a la coordinación que cree la que necesitás."))
     with get_db() as db:
-        docentes = db.execute(
-            "SELECT * FROM users WHERE role IN ('docente', 'admin') ORDER BY role = 'admin' DESC, full_name"
-        ).fetchall()
         materias = all_courses(db, only_active=True)
         duplicables = staff_editions(db, user)
+        # El equipo arranca con quien está creando la cursada, que es lo que el alta hace
+        # igual: si es docente queda asignado sí o sí. Coordinación puede quitarse.
+        propios = [db.execute("SELECT * FROM users WHERE id = ?", (user["id"],)).fetchone()]
     return render(
-        request, "admin_curso_nuevo.html", docentes=docentes, materias=materias,
+        request, "admin_curso_nuevo.html", propios=propios, materias=materias,
         materia_f=_curso_param(materia), duplicables=duplicables, anio=str(datetime.now(AR_TZ).year),
     )
 
 
 @app.post("/admin/cursos/crear")
 async def admin_cursos_crear(request: Request):
-    """Crea una EDICIÓN, sobre una materia existente o sobre una nueva."""
-    user, resp = _require(request, "admin")
+    """Crea una cursada, sobre una materia existente o sobre una nueva."""
+    user, resp = _require(request, *STAFF)
     if resp:
         return resp
+    if not puede_crear_materias(user):
+        return redirect("/admin/cursos", err=(
+            "La coordinación no habilitó que los docentes creen materias y cursadas. "
+            "Pedile a la coordinación que cree la que necesitás."))
     form = await request.form()
     etiqueta = (form.get("etiqueta") or "").strip()
     materia_id = form.get("materia_id") or ""
     materia_nueva = (form.get("materia_nueva") or "").strip()
     volver = "/admin/cursos/nuevo"
     if not etiqueta:
-        return redirect(volver, err="La edición necesita una etiqueta (ej.: «2026» o «2026 2C»).")
+        return redirect(volver, err="La cursada necesita una etiqueta (ej.: «2026» o «2026 2C»).")
 
     with get_db() as db:
         if materia_id == "nueva" or not materia_id:
@@ -1227,8 +1450,8 @@ async def admin_cursos_crear(request: Request):
                 cid_materia = fila["id"]
             else:
                 cid_materia = db.execute(
-                    "INSERT INTO courses (name, active, created_at) VALUES (?, 1, ?)",
-                    (materia_nueva, utcnow()),
+                    "INSERT INTO courses (name, active, created_at, creado_por) VALUES (?, 1, ?, ?)",
+                    (materia_nueva, utcnow(), user["id"]),
                 ).lastrowid
         else:
             cid_materia = int(materia_id)
@@ -1239,16 +1462,26 @@ async def admin_cursos_crear(request: Request):
             "SELECT 1 FROM course_editions WHERE course_id = ? AND etiqueta = ?", (cid_materia, etiqueta)
         ).fetchone():
             materia = get_course(db, cid_materia)
-            return redirect(volver, err=f"«{materia['name']}» ya tiene una edición «{etiqueta}».")
+            return redirect(volver, err=f"«{materia['name']}» ya tiene una cursada «{etiqueta}».")
 
         eid = db.execute(
-            "INSERT INTO course_editions (course_id, etiqueta, active, created_at) VALUES (?, ?, 1, ?)",
-            (cid_materia, etiqueta, utcnow()),
+            "INSERT INTO course_editions (course_id, etiqueta, active, created_at,"
+            " fecha_inicio, fecha_fin) VALUES (?, ?, ?, ?, ?, ?)",
+            (cid_materia, etiqueta, 1 if form.get("active", "1") == "1" else 0, utcnow(),
+             (form.get("fecha_inicio") or "").strip(), (form.get("fecha_fin") or "").strip()),
         ).lastrowid
+        # Quien la crea queda como docente, salvo que sea coordinación eligiendo a otros.
+        # Sin esto un docente crearía una cursada que después no puede ver.
+        if user["role"] == "docente":
+            db.execute("INSERT OR IGNORE INTO course_teachers (edition_id, user_id) VALUES (?, ?)",
+                       (eid, user["id"]))
         for uid in form.getlist("docentes"):
             if db.execute("SELECT 1 FROM users WHERE id = ? AND role IN ('docente', 'admin')", (int(uid),)).fetchone():
-                db.execute("INSERT INTO course_teachers (edition_id, user_id) VALUES (?, ?)", (eid, int(uid)))
-    return redirect(f"/admin/cursos/{eid}", msg="Edición creada — creá sus instancias de evaluación.")
+                # OR IGNORE porque quien crea ya quedó asignado arriba y además viene en la
+                # lista: el selector lo trae precargado, así que el choque es lo normal.
+                db.execute("INSERT OR IGNORE INTO course_teachers (edition_id, user_id) VALUES (?, ?)",
+                           (eid, int(uid)))
+    return redirect(f"/admin/cursos/{eid}", msg="Cursada creada — creá sus instancias de evaluación.")
 
 
 @app.get("/admin/cursos/{cid}", response_class=HTMLResponse)
@@ -1312,12 +1545,14 @@ async def admin_curso_post(request: Request, cid: int):
             if n:
                 return redirect(
                     f"/admin/cursos/{cid}",
-                    err=f"La edición tiene {n} entrega{'s' if n != 1 else ''}: eliminarla borraría ese historial. "
+                    err=f"La cursada tiene {n} entrega{'s' if n != 1 else ''}: eliminarla borraría ese historial. "
                         "Cerrala en su lugar (destildá «Cursada abierta»).",
                 )
             db.execute("DELETE FROM course_editions WHERE id = ?", (cid,))
-            return redirect("/admin/cursos", msg=f"Edición «{course['nombre']}» eliminada.")
-        if user["role"] == "admin":
+            return redirect("/admin/cursos", msg=f"Cursada «{course['nombre']}» eliminada.")
+        # Etiqueta, fechas, estado y equipo son atributos de la cursada, y quien la tiene
+        # asignada los administra. Eliminarla no: eso queda arriba, y ya salió por su rama.
+        if True:
             etiqueta = (form.get("etiqueta") or "").strip()
             if etiqueta and etiqueta != course["etiqueta"]:
                 if db.execute(
@@ -1326,7 +1561,7 @@ async def admin_curso_post(request: Request, cid: int):
                 ).fetchone():
                     return redirect(
                         f"/admin/cursos/{cid}",
-                        err=f"«{course['materia']}» ya tiene una edición «{etiqueta}».",
+                        err=f"«{course['materia']}» ya tiene una cursada «{etiqueta}».",
                     )
                 db.execute("UPDATE course_editions SET etiqueta = ? WHERE id = ?", (etiqueta, cid))
             db.execute(
@@ -1335,11 +1570,18 @@ async def admin_curso_post(request: Request, cid: int):
                  (form.get("fecha_inicio") or "").strip(), (form.get("fecha_fin") or "").strip(), cid),
             )
             elegidos = {int(x) for x in form.getlist("docentes")}
-            db.execute("DELETE FROM course_teachers WHERE edition_id = ?", (cid,))
-            for uid in elegidos:
-                if db.execute(
-                    "SELECT 1 FROM users WHERE id = ? AND role IN ('docente', 'admin')", (uid,)
-                ).fetchone():
+            # Un docente no puede sacarse a sí mismo: la lista se reescribe entera, y el
+            # descuido de destildarse lo dejaría afuera de su propia cursada sin poder volver.
+            if user["role"] != "admin":
+                elegidos.add(user["id"])
+            validos = [uid for uid in elegidos if db.execute(
+                "SELECT 1 FROM users WHERE id = ? AND role IN ('docente', 'admin')", (uid,)
+            ).fetchone()]
+            # Sin docentes nadie puede firmar una corrección, así que la cursada no se
+            # queda vacía: si el formulario no trajo ninguno válido, se deja como estaba.
+            if validos:
+                db.execute("DELETE FROM course_teachers WHERE edition_id = ?", (cid,))
+                for uid in validos:
                     db.execute("INSERT INTO course_teachers (edition_id, user_id) VALUES (?, ?)", (cid, uid))
     return redirect(f"/admin/cursos/{cid}", msg="Curso guardado.")
 
@@ -1414,6 +1656,7 @@ def admin_instancia_editar(request: Request, aid: int):
 def admin_instancia_editar_post(
     request: Request, aid: int, name: str = Form(...), tipo: str = Form(""),
     requiere_revision: str = Form(""), pide_propuesta: str = Form(""),
+    pide_repo: str = Form(""),
     modalidad: str = Form("digital"), fecha_apertura: str = Form(""), fecha_cierre: str = Form(""),
 ):
     user, resp = _require(request, *STAFF)
@@ -1442,12 +1685,14 @@ def admin_instancia_editar_post(
         # La propuesta solo aplica a trabajos abiertos.
         revision = 1 if (tipo == "choice" or requiere_revision == "1") else 0
         propuesta = 1 if (tipo == "abierto" and pide_propuesta == "1") else 0
+        # El repositorio acompaña a un trabajo, no a un examen escrito ni a un choice.
+        repo = 1 if (tipo == "abierto" and pide_repo == "1") else 0
         if modalidad not in ("digital", "papel", "ambos"):
             modalidad = assignment["modalidad"]
         db.execute(
             "UPDATE assignments SET name = ?, tipo = ?, requiere_revision = ?, pide_propuesta = ?,"
-            " modalidad = ?, fecha_apertura = ?, fecha_cierre = ? WHERE id = ?",
-            (name, tipo, revision, propuesta, modalidad,
+            " pide_repo = ?, modalidad = ?, fecha_apertura = ?, fecha_cierre = ? WHERE id = ?",
+            (name, tipo, revision, propuesta, repo, modalidad,
              fecha_apertura.strip(), fecha_cierre.strip(), aid),
         )
 
@@ -1469,6 +1714,7 @@ def admin_instancia_editar_post(
 def admin_instancia_crear(
     request: Request, cid: int, name: str = Form(...), tipo: str = Form("abierto"),
     requiere_revision: str = Form(""), pide_propuesta: str = Form(""),
+    pide_repo: str = Form(""),
     modalidad: str = Form("digital"), fecha_apertura: str = Form(""), fecha_cierre: str = Form(""),
 ):
     user, resp = _require(request, *STAFF)
@@ -1487,11 +1733,12 @@ def admin_instancia_crear(
             return redirect(f"/admin/cursos/{cid}/instancias/nueva", err=f"Ya existe una instancia «{name}» en este curso.")
         cur = db.execute(
             "INSERT INTO assignments (edition_id, name, tipo, active, requiere_revision,"
-            " pide_propuesta, modalidad, fecha_apertura, fecha_cierre, created_at)"
-            " VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?)",
+            " pide_propuesta, pide_repo, modalidad, fecha_apertura, fecha_cierre, created_at)"
+            " VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)",
             (cid, name, tipo,
              1 if (tipo == "choice" or requiere_revision == "1") else 0,
              1 if (tipo == "abierto" and pide_propuesta == "1") else 0,
+             1 if (tipo == "abierto" and pide_repo == "1") else 0,
              modalidad if modalidad in ("digital", "papel", "ambos") else "digital",
              fecha_apertura.strip(), fecha_cierre.strip(), utcnow()),
         )
@@ -1587,7 +1834,7 @@ def admin_edicion_duplicar(request: Request, cid: int):
 
 @app.post("/admin/cursos/{cid}/duplicar")
 async def admin_edicion_duplicar_post(request: Request, cid: int):
-    """Copia el armado de una cursada a una edición nueva: instancias con su material,
+    """Copia el armado de una cursada a una cursada nueva: instancias con su material,
     sus preguntas y sus cupos, más el equipo docente. Nunca estudiantes ni entregas."""
     user, resp = _require(request, *STAFF)
     if resp:
@@ -1599,14 +1846,14 @@ async def admin_edicion_duplicar_post(request: Request, cid: int):
         if not origen or not can_access_edition(db, user, cid):
             return redirect("/admin/cursos")
         if not etiqueta:
-            return redirect(f"/admin/cursos/{cid}/duplicar", err="La edición nueva necesita una etiqueta.")
+            return redirect(f"/admin/cursos/{cid}/duplicar", err="La cursada nueva necesita una etiqueta.")
         if db.execute(
             "SELECT 1 FROM course_editions WHERE course_id = ? AND etiqueta = ?",
             (origen["course_id"], etiqueta),
         ).fetchone():
             return redirect(
                 f"/admin/cursos/{cid}/duplicar",
-                err=f"«{origen['materia']}» ya tiene una edición «{etiqueta}».",
+                err=f"«{origen['materia']}» ya tiene una cursada «{etiqueta}».",
             )
 
         nueva = db.execute(
@@ -1635,6 +1882,11 @@ async def admin_edicion_duplicar_post(request: Request, cid: int):
                 )
             copiadas += 1
 
+        # Quien la crea queda como docente, salvo que sea coordinación eligiendo a otros.
+        # Sin esto un docente crearía una cursada que después no puede ver.
+        if user["role"] == "docente":
+            db.execute("INSERT OR IGNORE INTO course_teachers (edition_id, user_id) VALUES (?, ?)",
+                       (eid, user["id"]))
         for uid in form.getlist("docentes"):
             if db.execute("SELECT 1 FROM users WHERE id = ? AND role IN ('docente', 'admin')", (int(uid),)).fetchone():
                 db.execute("INSERT INTO course_teachers (edition_id, user_id) VALUES (?, ?)", (nueva, int(uid)))
@@ -1642,7 +1894,7 @@ async def admin_edicion_duplicar_post(request: Request, cid: int):
     estado = "activas" if activar else "en borrador"
     return redirect(
         f"/admin/cursos/{nueva}",
-        msg=f"Edición «{origen['materia']} {etiqueta}» creada a partir de {origen['nombre']}: "
+        msg=f"Cursada «{origen['materia']} {etiqueta}» creada a partir de {origen['nombre']}: "
             f"{copiadas} instancia{'s' if copiadas != 1 else ''} copiada{'s' if copiadas != 1 else ''} {estado}. "
             "Falta cargar el listado de estudiantes.",
     )
@@ -1666,7 +1918,9 @@ def admin_instancias(request: Request):
                 (c["id"],),
             ):
                 rows.append({"a": a, "curso": c})
-    return render(request, "admin_instancias.html", rows=rows, cursos=cursos)
+    with get_db() as db:
+        aviso = _consejo(db, user, "instancias")
+    return render(request, "admin_instancias.html", rows=rows, cursos=cursos, aviso=aviso)
 
 
 @app.get("/admin/instancias/nueva", response_class=HTMLResponse)
@@ -1688,6 +1942,7 @@ def admin_instancia_nueva_global(request: Request, curso: str | None = None):
 def admin_instancia_crear_global(
     request: Request, curso_id: int = Form(...), name: str = Form(...), tipo: str = Form("abierto"),
     requiere_revision: str = Form(""), pide_propuesta: str = Form(""),
+    pide_repo: str = Form(""),
     modalidad: str = Form("digital"), fecha_apertura: str = Form(""), fecha_cierre: str = Form(""),
 ):
     user, resp = _require(request, *STAFF)
@@ -1706,11 +1961,12 @@ def admin_instancia_crear_global(
             return redirect(f"/admin/instancias/nueva?curso={curso_id}", err=f"Ya existe una instancia «{name}» en ese curso.")
         cur = db.execute(
             "INSERT INTO assignments (edition_id, name, tipo, active, requiere_revision,"
-            " pide_propuesta, modalidad, fecha_apertura, fecha_cierre, created_at)"
-            " VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?)",
+            " pide_propuesta, pide_repo, modalidad, fecha_apertura, fecha_cierre, created_at)"
+            " VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)",
             (curso_id, name, tipo,
              1 if (tipo == "choice" or requiere_revision == "1") else 0,
              1 if (tipo == "abierto" and pide_propuesta == "1") else 0,
+             1 if (tipo == "abierto" and pide_repo == "1") else 0,
              modalidad if modalidad in ("digital", "papel", "ambos") else "digital",
              fecha_apertura.strip(), fecha_cierre.strip(), utcnow()),
         )
@@ -1718,8 +1974,64 @@ def admin_instancia_crear_global(
     return redirect(f"/admin/instancias/{aid}", msg="Instancia creada — completá el material de corrección y activala.")
 
 
+@app.get("/admin/instancias/plantilla/{tipo}.{formato}")
+def admin_plantilla(request: Request, tipo: str, formato: str):
+    """El formulario en blanco para armar la instancia fuera del sistema."""
+    user, resp = _require(request, *STAFF)
+    if resp:
+        return resp
+    try:
+        if formato == "docx":
+            datos = modelos.plantilla_docx(tipo)
+            mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        elif formato == "txt":
+            datos = modelos.plantilla_txt(tipo).encode("utf-8")
+            mime = "text/plain; charset=utf-8"
+        else:
+            return redirect("/admin/instancias")
+    except modelos.FormatoInvalido:
+        return redirect("/admin/instancias")
+    nombre = f"plantilla-{modelos.NOMBRE_TIPO[tipo].replace(' ', '-')}.{formato}"
+    return Response(content=datos, media_type=mime,
+                    headers={"Content-Disposition": f'attachment; filename="{nombre}"'})
+
+
+@app.post("/admin/instancias/{aid}/cargar")
+async def admin_instancia_cargar(request: Request, aid: int, archivo: UploadFile = File(...)):
+    """Lee el documento completado y propone los campos, sin guardar nada.
+
+    A propósito no escribe en la base: devuelve la misma ficha con los campos llenos y
+    un aviso de que están sin guardar. Así la persona ve qué se entendió antes de pisar
+    lo que ya tenía, que es lo que más duele si el documento estaba mal.
+    """
+    user, resp = _require(request, *STAFF)
+    if resp:
+        return resp
+    volver = f"/admin/instancias/{aid}"
+    with get_db() as db:
+        assignment = get_assignment(db, aid)
+        if not assignment:
+            return redirect("/admin/cursos")
+        if not can_access_edition(db, user, assignment["edition_id"]):
+            return redirect("/admin/cursos")
+    # El `accept` del navegador es una sugerencia, no un control: el formato se verifica acá.
+    if not (archivo.filename or "").lower().endswith(".docx"):
+        return redirect(volver, err=(
+            "Tiene que ser el archivo .docx de la plantilla. Un PDF no sirve: al convertirlo se "
+            "pierde la estructura que se usa para separar las secciones."))
+    datos = await archivo.read()
+    if not datos:
+        return redirect(volver, err="No elegiste ningún archivo.")
+    try:
+        texto, _ = extract_text(archivo.filename or "", datos)
+        leido = modelos.leer(assignment["tipo"], texto)
+    except (ExtractionError, modelos.FormatoInvalido) as exc:
+        return redirect(volver, err=str(exc))
+    return admin_instancia(request, aid, leido=leido)
+
+
 @app.get("/admin/instancias/{aid}", response_class=HTMLResponse)
-def admin_instancia(request: Request, aid: int):
+def admin_instancia(request: Request, aid: int, leido: dict | None = None):
     user, resp = _require(request, *STAFF)
     if resp:
         return resp
@@ -1736,11 +2048,19 @@ def admin_instancia(request: Request, aid: int):
         items = assignment_items(db, aid)
     with get_db() as db:
         pasos = circ.circuito(db, course, assignment)
+    # `leido` es lo que vino de un documento recién subido: se muestra en el formulario
+    # como propuesta, sin tocar la base. Nada se guarda hasta que la persona confirme.
+    if leido:
+        assignment = dict(assignment)
+        assignment["consigna"] = leido["consigna"]
+        if leido["rubrica"]:
+            assignment["rubrica"] = leido["rubrica"]
+        items = leido["items"] or items
     return render(
         request, "admin_instancia.html", assignment=assignment, course=course,
         n_entregas=n_entregas, items=items, puntaje_total=items_puntaje_total(items),
         vinculo_campus=lti.habilitado() and bool(lti_storage.servicios_de_instancia(aid)),
-        pasos=pasos, avance=circ.resumen(pasos),
+        pasos=pasos, avance=circ.resumen(pasos), sin_guardar=bool(leido),
     )
 
 
@@ -1890,6 +2210,32 @@ async def admin_instancia_post(request: Request, aid: int):
 
 # ---------------------------------------------------------------- admin: docentes
 
+@app.get("/admin/docentes/buscar")
+def admin_docentes_buscar(request: Request, q: str = ""):
+    """Docentes que coinciden con lo tecleado, para el selector del equipo.
+
+    Devuelve pocos y solo a partir de tres caracteres: con cientos de docentes, una lista
+    completa de casillas es inusable, y una búsqueda de una letra devuelve media facultad.
+    """
+    user, resp = _require(request, *STAFF)
+    if resp:
+        return JSONResponse([], status_code=403)
+    q = q.strip()
+    if len(q) < 3:
+        return JSONResponse([])
+    like = f"%{q}%"
+    with get_db() as db:
+        filas = db.execute(
+            "SELECT id, full_name, login, role, active FROM users"
+            " WHERE role IN ('docente', 'admin') AND (full_name LIKE ? OR login LIKE ?)"
+            " ORDER BY active DESC, full_name LIMIT 8", (like, like),
+        ).fetchall()
+    return JSONResponse([
+        {"id": f["id"], "nombre": f["full_name"], "login": f["login"],
+         "coord": f["role"] == "admin", "activo": bool(f["active"])} for f in filas
+    ])
+
+
 @app.get("/admin/docentes", response_class=HTMLResponse)
 def admin_docentes(request: Request):
     user, resp = _require(request, "admin")
@@ -1933,11 +2279,10 @@ async def admin_docentes_crear(request: Request):
     with get_db() as db:
         if db.execute("SELECT 1 FROM users WHERE login = ?", (login_id,)).fetchone():
             return redirect("/admin/docentes/nuevo", err=f"Ya existe un usuario «{login_id}».")
-        password = auth.generate_password()
         cur = db.execute(
-            "INSERT INTO users (login, password_hash, initial_password, full_name, email, role, active, created_at)"
-            " VALUES (?, ?, ?, ?, ?, 'docente', 1, ?)",
-            (login_id, auth.hash_password(password), password, nombre, email, utcnow()),
+            "INSERT INTO users (login, password_hash, full_name, email, role, active, created_at)"
+            " VALUES (?, ?, ?, ?, 'docente', 1, ?)",
+            (login_id, claves.clave_inutilizable(), nombre, email, utcnow()),
         )
         uid = cur.lastrowid
         for cid in form.getlist("cursos"):
@@ -2002,12 +2347,7 @@ async def admin_docente_post(request: Request, uid: int):
             db.execute("UPDATE users SET active = ? WHERE id = ?", (0 if doc["active"] else 1, uid))
             return redirect(f"/admin/docentes/{uid}", msg="Estado actualizado.")
         if action == "reset_password":
-            password = auth.generate_password()
-            db.execute(
-                "UPDATE users SET password_hash = ?, initial_password = ? WHERE id = ?",
-                (auth.hash_password(password), password, uid),
-            )
-            return redirect(f"/admin/docentes/{uid}", msg=f"Nueva contraseña: {password}")
+            return _mandar_enlace(doc, f"/admin/docentes/{uid}")
     return redirect(f"/admin/docentes/{uid}")
 
 
@@ -2026,11 +2366,10 @@ def _crear_o_inscribir(db, edition_id: int, dni: str, nombre: str, email: str, p
         if enroll(db, row["id"], edition_id):
             return "inscripto", row["full_name"]
         return "ya_estaba", row["full_name"]
-    password = auth.generate_password()
     cur = db.execute(
-        "INSERT INTO users (login, password_hash, initial_password, full_name, email, role, active, profile, created_at)"
-        " VALUES (?, ?, ?, ?, ?, 'student', 1, ?, ?)",
-        (dni, auth.hash_password(password), password, nombre, email, profile, utcnow()),
+        "INSERT INTO users (login, password_hash, full_name, email, role, active, profile, created_at)"
+        " VALUES (?, ?, ?, ?, 'student', 1, ?, ?)",
+        (dni, claves.clave_inutilizable(), nombre, email, profile, utcnow()),
     )
     enroll(db, cur.lastrowid, edition_id)
     return "creado", password
@@ -2102,9 +2441,11 @@ def admin_estudiantes(request: Request, curso: str | None = None):
                 " WHERE e.user_id = ? ORDER BY c.name",
                 (s["id"],),
             ).fetchall()
+    with get_db() as db:
+        aviso = _consejo(db, user, "estudiantes")
     return render(
         request, "admin_estudiantes.html", rows=students, detalle=detalle,
-        cursos=cursos, curso_f=curso,
+        cursos=cursos, curso_f=curso, aviso=aviso,
     )
 
 
@@ -2193,15 +2534,32 @@ async def admin_cargar(
 
 
 @app.post("/admin/estudiantes/{uid}/toggle")
-def admin_toggle(request: Request, uid: int):
+def admin_toggle(request: Request, uid: int, curso_id: int = Form(...),
+                 volver: str = Form("")):
+    """Habilita o deshabilita a alguien EN UNA CURSADA.
+
+    Antes esto apagaba la cuenta entera, así que un docente de una cursada dejaba a la
+    persona sin poder entregar en las cursadas de todos los demás. Se decide por cursada
+    porque es quien dicta esa cursada el que tiene el criterio para decidirlo.
+    """
     user, resp = _require(request, *STAFF)
     if resp:
         return resp
+    destino = volver if volver.startswith("/admin/") else "/admin/estudiantes"
     with get_db() as db:
-        row = db.execute("SELECT * FROM users WHERE id = ? AND role = 'student'", (uid,)).fetchone()
-        if row and _student_in_scope(db, user, uid):
-            db.execute("UPDATE users SET active = ? WHERE id = ?", (0 if row["active"] else 1, uid))
-    return redirect("/admin/estudiantes")
+        if not can_access_edition(db, user, curso_id):
+            return redirect(destino)
+        fila = db.execute(
+            "SELECT * FROM enrollments WHERE user_id = ? AND edition_id = ?", (uid, curso_id)
+        ).fetchone()
+        if not fila:
+            return redirect(destino, err="Esa persona no está inscripta en esa cursada.")
+        nuevo = 0 if fila["active"] else 1
+        db.execute("UPDATE enrollments SET active = ? WHERE id = ?", (nuevo, fila["id"]))
+        curso = get_edition(db, curso_id)
+    estado = "habilitada" if nuevo else "deshabilitada"
+    return redirect(destino, msg=f"Inscripción {estado} en «{curso['nombre']}». "
+                                 "Solo afecta a esta cursada.")
 
 
 @app.get("/admin/estudiantes/{uid}", response_class=HTMLResponse)
@@ -2219,8 +2577,11 @@ def admin_ficha(request: Request, uid: int):
             "JOIN courses c ON c.id = ce.course_id "
             "WHERE s.user_id = ? ORDER BY s.id DESC", (uid,)
         ).fetchall()
+        # Se listan las CURSADAS, no las materias: el enlace de cada fila va a la ficha de
+        # una cursada, y `habilitado` es de la inscripción, que es lo que se habilita.
         inscripciones = db.execute(
-            "SELECT c.*, e.id AS eid,"
+            "SELECT ed.id AS id, ed.active AS active, ed.etiqueta,"
+            " c.name || ' ' || ed.etiqueta AS name, e.active AS habilitado, e.id AS eid,"
             " (SELECT COUNT(*) FROM submissions s JOIN assignments a ON a.id = s.assignment_id"
             "  WHERE s.user_id = ? AND a.edition_id = ed.id) AS n_entregas"
             " FROM enrollments e JOIN course_editions ed ON ed.id = e.edition_id"
@@ -2266,12 +2627,7 @@ def admin_ficha_post(
             )
             return redirect(f"/admin/estudiantes/{uid}", msg="Ficha actualizada.")
         if action == "reset_password":
-            password = auth.generate_password()
-            db.execute(
-                "UPDATE users SET password_hash = ?, initial_password = ? WHERE id = ?",
-                (auth.hash_password(password), password, uid),
-            )
-            return redirect(f"/admin/estudiantes/{uid}", msg=f"Nueva contraseña: {password}")
+            return _mandar_enlace(row, f"/admin/estudiantes/{uid}")
         if action == "inscribir":
             if not can_access_edition(db, user, curso_id) or not get_edition(db, curso_id):
                 return redirect(f"/admin/estudiantes/{uid}", err="No podés inscribir en ese curso.")
@@ -2298,7 +2654,7 @@ def admin_ficha_post(
 
 @app.get("/admin/cursos/{cid}/notas.csv")
 def admin_notas_csv(request: Request, cid: int):
-    """Las notas de la edición, listas para pegar en la planilla de la universidad."""
+    """Las notas de la cursada, listas para pegar en la planilla de la universidad."""
     user, resp = _require(request, *STAFF)
     if resp:
         return resp
@@ -2364,15 +2720,20 @@ def admin_investigacion_csv(request: Request, archivo: str):
 # ------------------------------------------------- staff: examen en papel por el estudiante
 
 def _papel_contexto(db, user, aid):
-    """Valida que la instancia admita carga docente en papel y devuelve (assignment, curso)."""
+    """Valida que la instancia admita carga docente en papel.
+
+    Devuelve (assignment, curso, salida). `salida` es None si todo está bien, o el par
+    (a dónde volver, qué decir): el motivo viaja con el destino porque no es el mismo
+    decirle a alguien que la instancia es solo digital que decirle que no es suya.
+    """
     assignment = get_assignment(db, aid)
     if not assignment:
-        return None, None, "/admin/instancias"
+        return None, None, ("/admin/instancias", "Esa instancia de evaluación no existe.")
     curso = get_edition(db, assignment["edition_id"])
     if not can_access_edition(db, user, curso["id"]):
-        return None, None, "/admin/instancias"
+        return None, None, ("/admin/instancias", "Esa instancia es de una cursada que no tenés asignada.")
     if assignment["modalidad"] == "digital":
-        return None, None, f"/admin/instancias/{aid}"
+        return None, None, (f"/admin/instancias/{aid}", "Esta instancia no admite exámenes en papel.")
     return assignment, curso, None
 
 
@@ -2384,7 +2745,7 @@ def admin_papel(request: Request, aid: int):
     with get_db() as db:
         assignment, curso, salida = _papel_contexto(db, user, aid)
         if salida:
-            return redirect(salida, err="Esta instancia no admite exámenes en papel.")
+            return redirect(salida[0], err=salida[1])
         inscriptos = db.execute(
             "SELECT u.id, u.login, u.full_name,"
             " (SELECT COUNT(*) FROM submissions s WHERE s.user_id = u.id AND s.assignment_id = ?"
@@ -2409,7 +2770,7 @@ async def admin_papel_leer(
     with get_db() as db:
         assignment, curso, salida = _papel_contexto(db, user, aid)
         if salida:
-            return redirect(salida, err="Esta instancia no admite exámenes en papel.")
+            return redirect(salida[0], err=salida[1])
         alumno = db.execute(
             "SELECT u.* FROM users u JOIN enrollments e ON e.user_id = u.id"
             " WHERE u.id = ? AND e.edition_id = ?", (alumno_id, curso["id"]),
@@ -2451,7 +2812,7 @@ async def admin_papel_registrar(
     with get_db() as db:
         assignment, curso, salida = _papel_contexto(db, user, aid)
         if salida:
-            return redirect(salida, err="Esta instancia no admite exámenes en papel.")
+            return redirect(salida[0], err=salida[1])
         alumno = db.execute(
             "SELECT u.* FROM users u JOIN enrollments e ON e.user_id = u.id"
             " WHERE u.id = ? AND e.edition_id = ?", (alumno_id, curso["id"]),
@@ -2488,50 +2849,6 @@ async def admin_papel_registrar(
                     msg=f"Examen de {alumno['full_name']} registrado.{aviso}")
 
 
-@app.get("/admin/credenciales.csv")
-def admin_credenciales(request: Request, curso: str | None = None):
-    user, resp = _require(request, *STAFF)
-    if resp:
-        return resp
-    curso = _curso_param(curso)
-    with get_db() as db:
-        ids = _scope_ids(db, user)
-        if curso is not None and not can_access_edition(db, user, curso):
-            return redirect("/admin/estudiantes")
-        if curso is not None:
-            rows = db.execute(
-                "SELECT DISTINCT u.login, u.full_name, u.email, u.initial_password FROM users u "
-                "JOIN enrollments e ON e.user_id = u.id WHERE u.role = 'student' AND e.edition_id = ? "
-                "AND u.initial_password IS NOT NULL ORDER BY u.full_name", (curso,)
-            ).fetchall()
-        elif ids is None:
-            rows = db.execute(
-                "SELECT login, full_name, email, initial_password FROM users "
-                "WHERE role = 'student' AND initial_password IS NOT NULL ORDER BY full_name"
-            ).fetchall()
-        elif ids:
-            marks = ",".join("?" * len(ids))
-            rows = db.execute(
-                f"SELECT DISTINCT u.login, u.full_name, u.email, u.initial_password FROM users u "
-                f"JOIN enrollments e ON e.user_id = u.id WHERE u.role = 'student' AND e.edition_id IN ({marks}) "
-                f"AND u.initial_password IS NOT NULL ORDER BY u.full_name", ids
-            ).fetchall()
-        else:
-            rows = []
-    buf = io.StringIO()
-    writer = csv.writer(buf)
-    writer.writerow(["dni", "nombre", "correo", "contraseña_inicial"])
-    for r in rows:
-        writer.writerow([r["login"], r["full_name"], r["email"], r["initial_password"]])
-    buf.seek(0)
-    return StreamingResponse(
-        iter([buf.getvalue()]), media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": "attachment; filename=credenciales.csv"},
-    )
-
-
-# ---------------------------------------------------------------- admin: configuración global
-
 @app.get("/admin/config", response_class=HTMLResponse)
 def admin_config(request: Request):
     user, resp = _require(request, "admin")
@@ -2546,6 +2863,7 @@ def admin_config(request: Request):
 def admin_config_post(
     request: Request,
     banner_deshabilitado: str = Form(""), enviar_nombre: str = Form("0"),
+    docentes_crean_materias: str = Form("0"),
 ):
     user, resp = _require(request, "admin")
     if resp:
@@ -2553,4 +2871,6 @@ def admin_config_post(
     with get_db() as db:
         set_config(db, "banner_deshabilitado", banner_deshabilitado.strip())
         set_config(db, "enviar_nombre", "1" if enviar_nombre == "1" else "0")
+        set_config(db, "docentes_crean_materias",
+                   "1" if docentes_crean_materias == "1" else "0")
     return redirect("/admin/config", msg="Configuración guardada.")

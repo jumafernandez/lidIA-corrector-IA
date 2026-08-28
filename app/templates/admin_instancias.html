@@ -1,8 +1,10 @@
 {% extends "base.html" %}
 {% block title %}Instancias de evaluación{% endblock %}
+{% from "_consejo.html" import consejo %}
 {% block content %}
 <div class="row-between head">
   <h1>Instancias de evaluación</h1>
+{{ consejo(aviso, base) }}
   {% if cursos %}
   <a class="btn small primary" href="{{ base }}/admin/instancias/nueva">Nueva instancia</a>
   {% endif %}

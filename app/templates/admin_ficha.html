@@ -3,12 +3,12 @@
 {% block title %}{{ est.full_name }}{% endblock %}
 {% block content %}
 <p class="crumbs"><a href="{{ base }}/admin/estudiantes">← Estudiantes</a></p>
-<h1>{{ est.full_name }} <span class="pill pill-mini {{ 'pill-ok' if est.active else 'pill-warn' }}">{{ 'Habilitado' if est.active else 'Deshabilitado' }}</span></h1>
+<h1>{{ est.full_name }}{% if not est.active %} <span class="pill pill-mini pill-warn">Cuenta deshabilitada</span>{% endif %}</h1>
 <p class="muted">DNI {{ est.login }} · alta {{ est.created_at|fecha }}</p>
 
-{% if est.initial_password %}
-<p class="clave-inicial">🔑 Contraseña inicial: <code>{{ est.initial_password }}</code> —
-entregásela por un canal seguro. Deja de mostrarse cuando la cambie desde su cuenta.</p>
+{% if not (est.email or '').strip() %}
+<div class="flash warn">Sin correo cargado no se le puede mandar el enlace para elegir contraseña,
+así que no va a poder entrar. Cargáselo acá abajo.</div>
 {% endif %}
 
 <div class="grid2">
@@ -31,9 +31,9 @@ entregásela por un canal seguro. Deja de mostrarse cuando la cambie desde su cu
     </form>
     <hr style="border: none; border-top: 1px solid var(--line); margin: 16px 0">
     <div class="row-gap">
-      <form method="post" action="{{ base }}/admin/estudiantes/{{ est.id }}" class="inline" data-confirm="¿Generar una nueva contraseña para {{ est.full_name }}?">
+      <form method="post" action="{{ base }}/admin/estudiantes/{{ est.id }}" class="inline" data-confirm="¿Mandarle a {{ est.full_name }} un enlace para elegir contraseña?">
         <input type="hidden" name="action" value="reset_password">
-        <button type="submit" class="btn ghost">Regenerar contraseña</button>
+        <button type="submit" class="btn ghost">Mandar enlace de contraseña</button>
       </form>
       <form method="post" action="{{ base }}/admin/estudiantes/{{ est.id }}" class="inline"
             data-confirm="¿Eliminar a {{ est.full_name }}? Se pierde su usuario y sus inscripciones.">
@@ -46,13 +46,20 @@ entregásela por un canal seguro. Deja de mostrarse cuando la cambie desde su cu
   <section class="card">
     <h2>Cursos</h2>
     <table>
-      <thead><tr><th>Curso</th><th>Entregas</th><th></th></tr></thead>
+      <thead><tr><th>Cursada</th><th>Entregas</th><th>Inscripción</th><th></th></tr></thead>
       <tbody>
       {% for i in inscripciones %}
         <tr>
-          <td><a href="{{ base }}/admin/cursos/{{ i.id }}">{{ i.name }}</a>{% if not i.active %} <span class="muted small">(inactivo)</span>{% endif %}</td>
+          <td><a href="{{ base }}/admin/cursos/{{ i.id }}">{{ i.name }}</a>{% if not i.active %} <span class="muted small">(cursada cerrada)</span>{% endif %}</td>
           <td>{{ i.n_entregas }}</td>
+          <td><span class="pill pill-mini {{ 'pill-ok' if i.habilitado else 'pill-warn' }}">{{ 'Habilitada' if i.habilitado else 'Deshabilitada' }}</span></td>
           <td>
+            <form method="post" action="{{ base }}/admin/estudiantes/{{ est.id }}/toggle" class="inline"
+                  data-confirm="{{ '¿Deshabilitar' if i.habilitado else '¿Habilitar' }} a {{ est.full_name }} en «{{ i.name }}»? Solo afecta a esta cursada.">
+              <input type="hidden" name="curso_id" value="{{ i.id }}">
+              <input type="hidden" name="volver" value="/admin/estudiantes/{{ est.id }}">
+              <button type="submit" class="btn small {{ 'ghost' if i.habilitado else 'primary' }}">{{ 'Deshabilitar' if i.habilitado else 'Habilitar' }}</button>
+            </form>
             {% if i.n_entregas == 0 %}
             <form method="post" action="{{ base }}/admin/estudiantes/{{ est.id }}" class="inline" data-confirm="¿Quitar a {{ est.full_name }} de «{{ i.name }}»?">
               <input type="hidden" name="action" value="desinscribir">

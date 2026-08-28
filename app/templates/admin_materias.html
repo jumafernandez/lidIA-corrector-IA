@@ -1,14 +1,16 @@
 {% extends "base.html" %}
 {% from "_ui.html" import info %}
 {% block title %}Materias{% endblock %}
+{% from "_consejo.html" import consejo %}
 {% block content %}
 <p class="crumbs"><a href="{{ base }}/admin/cursos">← Cursos</a></p>
 <div class="row-between head">
   <h1>Materias</h1>
-  <a class="btn small primary" href="{{ base }}/admin/materias/nueva">Nueva materia</a>
+  {% if puede_crear(user) %}<a class="btn small primary" href="{{ base }}/admin/materias/nueva">Nueva materia</a>{% endif %}
 </div>
 <p class="muted small guia">La materia es el nombre estable, sin año ni cuatrimestre: lo comparten todas
-sus cursadas. Cada una tiene su ficha, donde se renombra y se ven sus ediciones.</p>
+sus cursadas. Cada una tiene su ficha, donde se renombra y se ven sus cursadas.</p>
+{{ consejo(aviso, base) }}
 
 <section class="card">
   <table>
@@ -18,21 +20,23 @@ sus cursadas. Cada una tiene su ficha, donde se renombra y se ven sus ediciones.
       <tr>
         <td><a href="{{ base }}/admin/materias/{{ r.m.id }}">{{ r.m.name }}</a></td>
         <td>
-          {% for e in r.ediciones %}<a class="pill pill-mini pill-edicion" href="{{ base }}/admin/cursos/{{ e.id }}">{{ e.etiqueta }}</a>{{ ' ' if not loop.last }}{% else %}<span class="muted">—</span>{% endfor %}
+          {% for e in r.cursadas %}<a class="pill pill-mini pill-edicion" href="{{ base }}/admin/cursos/{{ e.id }}">{{ e.etiqueta }}</a>{{ ' ' if not loop.last }}{% else %}<span class="muted">—</span>{% endfor %}
         </td>
         <td>{{ r.n_est }}</td>
         <td><span class="pill pill-mini {{ 'pill-ok' if r.m.active else 'pill-warn' }}">{{ 'En el plan' if r.m.active else 'Fuera del plan' }}</span></td>
         <td class="acciones">
           <a class="btn small" href="{{ base }}/admin/materias/{{ r.m.id }}">Ficha</a>
+{% if r.editable %}
           <form method="post" action="{{ base }}/admin/materias/{{ r.m.id }}" class="inline"
                 data-confirm="¿Eliminar la materia «{{ r.m.name }}»?">
             <input type="hidden" name="action" value="eliminar">
             <button class="btn small ghost">Eliminar</button>
           </form>
+{% endif %}
         </td>
       </tr>
     {% else %}
-      <tr><td colspan="5" class="muted">Todavía no hay materias. Creá la primera, o creá una edición y la materia nace con ella.</td></tr>
+      <tr><td colspan="5" class="muted">Todavía no hay materias. Creá la primera, o creá una cursada y la materia nace con ella.</td></tr>
     {% endfor %}
     </tbody>
   </table>

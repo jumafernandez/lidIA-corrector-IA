@@ -1,8 +1,10 @@
 {% extends "base.html" %}
 {% block title %}Entregas{% endblock %}
+{% from "_consejo.html" import consejo %}
 {% block content %}
 <div class="row-between head">
   <h1>Entregas</h1>
+{{ consejo(aviso, base) }}
   {% if cursos|length > 1 %}
   <form method="get" action="{{ base }}/admin/entregas" class="inline toolbar">
     <select name="curso" onchange="this.form.submit()">

@@ -1,0 +1,31 @@
+{# Selector del equipo docente.
+
+   Una casilla por docente deja de servir apenas la lista pasa de unas pocas decenas: con
+   los docentes de toda la universidad hay que buscar, no recorrer. Se escribe el apellido
+   o el DNI, aparecen las coincidencias y se agregan de a una; los agregados quedan a la
+   vista como fichas que se pueden quitar.
+
+   `elegidos` son los que ya están asignados (filas de users). Cada uno viaja en un input
+   oculto `docentes`, que es exactamente lo que el formulario esperaba de las casillas: el
+   handler no cambia. #}
+{% macro selector_docentes(elegidos, base, titulo="Equipo docente de esta cursada") %}
+<div class="buscador-docentes" data-url="{{ base }}/admin/docentes/buscar">
+  <p style="margin-bottom: 4px"><strong>{{ titulo }}</strong></p>
+  <ul class="fichas" data-elegidos>
+    {% for d in elegidos %}
+      <li data-id="{{ d.id }}">
+        <input type="hidden" name="docentes" value="{{ d.id }}">
+        <span>{{ d.full_name }}</span>
+        <span class="muted small">{{ d.login }}{{ ' · coordinación' if d.role == 'admin' }}{{ ' · deshabilitado' if not d.active }}</span>
+        <button type="button" class="quitar" aria-label="Quitar a {{ d.full_name }}">×</button>
+      </li>
+    {% endfor %}
+  </ul>
+  <div class="campo-busca">
+    <input type="search" autocomplete="off" data-busca
+           placeholder="Buscá por apellido o DNI y agregalo…">
+    <ul class="sugerencias" data-sugerencias hidden></ul>
+  </div>
+  <p class="ayuda" data-vacio {{ 'hidden' if elegidos }}>Todavía no hay nadie: sin docentes, nadie puede firmar una corrección.</p>
+</div>
+{% endmacro %}

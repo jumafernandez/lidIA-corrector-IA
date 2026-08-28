@@ -1,9 +1,11 @@
 {% extends "base.html" %}
 {% from "_ui.html" import info %}
 {% block title %}Estudiantes{% endblock %}
+{% from "_consejo.html" import consejo %}
 {% block content %}
 <div class="row-between head">
   <h1>Estudiantes</h1>
+{{ consejo(aviso, base) }}
   <span class="toolbar">
     {% if cursos|length > 1 %}
     <form method="get" action="{{ base }}/admin/estudiantes" class="inline">
@@ -19,12 +21,11 @@
     <a class="btn small primary" href="{{ base }}/admin/estudiantes/nuevo{{ '?curso=' ~ curso_f if curso_f }}">Nuevo estudiante</a>
     <a class="btn small" href="{{ base }}/admin/estudiantes/importar{{ '?curso=' ~ curso_f if curso_f }}">Importar listado</a>
     {% endif %}
-    <a class="btn small" href="{{ base }}/admin/credenciales.csv{{ '?curso=' ~ curso_f if curso_f }}">Credenciales (CSV)</a>
   </span>
 </div>
 
 {% if not cursos %}
-<div class="flash warn">No tenés cursos asignados: pedile a la coordinación que te asigne antes de cargar estudiantes.</div>
+<div class="flash warn">No tenés cursos asignados: {% if puede_crear(user) %}creá tu cursada desde <a href="{{ base }}/admin/cursos/nuevo">Nueva cursada</a>{% else %}pedile a la coordinación que te asigne{% endif %} antes de cargar estudiantes.</div>
 {% endif %}
 
 <section class="card">
@@ -42,12 +43,9 @@
               {{ d.name|truncate(28) }} · {{ d.n_entregas }}</span>
           {% else %}<span class="muted small">sin curso</span>{% endfor %}
         </td>
-        <td><span class="pill pill-mini {{ 'pill-ok' if e.active else 'pill-warn' }}">{{ 'Habilitado' if e.active else 'Deshabilitado' }}</span></td>
+        <td>{% if not e.active %}<span class="pill pill-mini pill-warn">Cuenta deshabilitada</span>{% else %}<span class="muted small">—</span>{% endif %}</td>
         <td class="acciones">
           <a class="btn small" href="{{ base }}/admin/estudiantes/{{ e.id }}">Ficha</a>
-          <form method="post" action="{{ base }}/admin/estudiantes/{{ e.id }}/toggle" class="inline">
-            <button class="btn small {{ 'ghost' if e.active else 'primary' }}">{{ 'Deshabilitar' if e.active else 'Habilitar' }}</button>
-          </form>
           <form method="post" action="{{ base }}/admin/estudiantes/{{ e.id }}" class="inline"
                 data-confirm="¿Eliminar a {{ e.full_name }}? Se pierde su usuario y sus inscripciones.">
             <input type="hidden" name="action" value="eliminar">

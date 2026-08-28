@@ -198,6 +198,6 @@ def resumen(db) -> dict:
         "valoradas": uno("SELECT COUNT(*) FROM submissions WHERE valoracion IS NOT NULL"),
         "utiles": uno("SELECT COUNT(*) FROM submissions WHERE valoracion = 1"),
         "con_telemetria": uno("SELECT COUNT(*) FROM submissions WHERE tokens_in IS NOT NULL"),
-        "ediciones_sin_fechas": uno(
+        "cursadas_sin_fechas": uno(
             "SELECT COUNT(*) FROM course_editions WHERE active = 1 AND COALESCE(fecha_inicio, '') = ''"),
     }

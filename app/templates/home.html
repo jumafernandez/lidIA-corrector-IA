@@ -15,7 +15,11 @@
       {% elif es_coord %}
         Todavía no hay cursadas cargadas en el laboratorio.
       {% else %}
-        Todavía no tenés cursadas asignadas: pedile a la coordinación que te asigne.
+        {% if puede_crear(user) %}
+          Todavía no tenés ninguna cursada: creá la primera y la configuramos juntos.
+        {% else %}
+          Todavía no tenés cursadas asignadas: pedile a la coordinación que te asigne.
+        {% endif %}
       {% endif %}
     </p>
   </div>
@@ -90,10 +94,16 @@
   {% else %}
     {% if es_coord %}
       <p class="muted">Todavía no hay ninguna cursada. Creá la primera desde
-      <a href="{{ base }}/admin/cursos/nuevo">Nueva edición</a>.</p>
+      <a href="{{ base }}/admin/cursos/nuevo">Nueva cursada</a>.</p>
     {% else %}
-      <p class="muted">Todavía no tenés cursadas asignadas. La coordinación te las asigna desde la ficha
-      de cada cursada.</p>
+      {% if puede_crear(user) %}
+        <p class="muted">Todavía no tenés ninguna cursada. Creá la primera desde
+        <a href="{{ base }}/admin/cursos/nuevo">Nueva cursada</a>, o pedile a la coordinación que
+        te asigne a una que ya exista.</p>
+      {% else %}
+        <p class="muted">Todavía no tenés cursadas asignadas. La coordinación te las asigna desde la
+        ficha de cada cursada.</p>
+      {% endif %}
     {% endif %}
   {% endif %}
 </section>

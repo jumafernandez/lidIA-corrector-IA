@@ -154,6 +154,10 @@ CREATE TABLE IF NOT EXISTS config (
 # viven en cada instancia de evaluación.
 DEFAULT_CONFIG = {
     "enviar_nombre": "1",  # enviar nombre de pila del estudiante al modelo
+    # Si los docentes pueden crear materias y cursadas por su cuenta. Van juntas a
+    # propósito: una materia sin cursada no sirve para nada, así que abrir una sin la
+    # otra dejaría al docente a mitad de camino y pidiéndole igual a la coordinación.
+    "docentes_crean_materias": "1",
     "banner_deshabilitado": (
         "Tu espacio sigue activo y podés consultar tu historial. Para habilitar nuevas devoluciones y la entrega final, "
         "acercate al staff de tu carrera para regularizar lo administrativo."
@@ -296,6 +300,51 @@ def init_db():
             # consentimiento para usar entregas anonimizadas en investigación educativa
             db.execute("ALTER TABLE users ADD COLUMN consent_at TEXT")
             db.execute("ALTER TABLE users ADD COLUMN consent INTEGER")
+        cols = {r["name"] for r in db.execute("PRAGMA table_info(courses)")}
+        if "creado_por" not in cols:
+            # 011 — Quién dio de alta la materia. Hace falta desde que un docente puede
+            # crearlas: recién creada no tiene ninguna cursada, y sin este dato no habría
+            # forma de distinguir «la mía, todavía vacía» de «la de cualquier otro».
+            # NULL = las que ya existían, todas de coordinación.
+            db.execute("ALTER TABLE courses ADD COLUMN creado_por INTEGER REFERENCES users(id)")
+
+        cols = {r["name"] for r in db.execute("PRAGMA table_info(users)")}
+        if "initial_password" in cols:
+            # 012 — La contraseña en claro se elimina. Cada persona fija la suya con un
+            # enlace por correo, así que no hay nada que repartir ni que guardar. Se borra
+            # la columna entera y no solo su contenido: mientras exista, algo va a volver
+            # a escribirla. Quien ya tenía contraseña la conserva —el hash no se toca—.
+            db.execute("ALTER TABLE users DROP COLUMN initial_password")
+
+        cols = {r["name"] for r in db.execute("PRAGMA table_info(assignments)")}
+        if "pide_repo" not in cols:
+            # 013 — En los trabajos con código el informe remite a un repositorio, y sin
+            # mirarlo no se puede saber si lo que el informe afirma es cierto. El enlace se
+            # pide en la entrega, no se busca dentro del documento.
+            db.execute("ALTER TABLE assignments ADD COLUMN pide_repo INTEGER NOT NULL DEFAULT 0")
+        cols = {r["name"] for r in db.execute("PRAGMA table_info(submissions)")}
+        if "repo_url" not in cols:
+            db.execute("ALTER TABLE submissions ADD COLUMN repo_url TEXT DEFAULT ''")
+            # Qué se leyó del repositorio en el momento de corregir. El repositorio sigue
+            # cambiando después; sin esto, la devolución deja de ser reproducible.
+            db.execute("ALTER TABLE submissions ADD COLUMN repo_resumen TEXT DEFAULT ''")
+
+        cols = {r["name"] for r in db.execute("PRAGMA table_info(enrollments)")}
+        if "active" not in cols:
+            # 014 — Habilitar o no a alguien es una decisión de una cursada, no de la
+            # persona: quien la toma es su docente, y no tiene por qué alcanzar a las
+            # cursadas de otros. `users.active` sigue existiendo con otro significado —la
+            # cuenta entera, que es de coordinación—, y son cosas distintas a propósito.
+            db.execute("ALTER TABLE enrollments ADD COLUMN active INTEGER NOT NULL DEFAULT 1")
+
+        cols = {r["name"] for r in db.execute("PRAGMA table_info(submissions)")}
+        if "alerta" not in cols:
+            # 015 — Si el material entregado traía órdenes dirigidas al corrector, queda
+            # anotado acá para que el docente lo vea al firmar. Es un dato de la entrega y
+            # no un estado: sirve tanto para avisar como para poder contar después cuántas
+            # veces pasó, que es algo que nadie mide y este sistema puede.
+            db.execute("ALTER TABLE submissions ADD COLUMN alerta TEXT DEFAULT ''")
+
         for key, value in DEFAULT_CONFIG.items():
             db.execute("INSERT OR IGNORE INTO config (key, value) VALUES (?, ?)", (key, value))
 
@@ -319,6 +368,25 @@ def set_config(db, key: str, value: str):
 def get_course(db, course_id: int):
     """La materia (el nombre estable, sin período)."""
     return db.execute("SELECT * FROM courses WHERE id = ?", (course_id,)).fetchone()
+
+
+def visible_courses(db, user):
+    """Materias que este usuario ve en el listado.
+
+    Coordinación, todas. Un docente ve las que le tocan: aquellas con alguna cursada suya,
+    más las que creó él —incluida la que acaba de crear, que todavía no tiene ninguna—. El
+    resto del catálogo no es asunto suyo: expone qué se dicta, con qué docentes y con
+    cuántos estudiantes.
+    """
+    if user["role"] == "admin":
+        return all_courses(db)
+    return db.execute(
+        "SELECT DISTINCT c.* FROM courses c"
+        " LEFT JOIN course_editions ed ON ed.course_id = c.id"
+        " LEFT JOIN course_teachers ct ON ct.edition_id = ed.id AND ct.user_id = ?"
+        " WHERE ct.user_id IS NOT NULL OR c.creado_por = ?"
+        " ORDER BY c.name", (user["id"], user["id"]),
+    ).fetchall()
 
 
 def all_courses(db, only_active: bool = False):
@@ -489,9 +557,24 @@ def student_editions(db, user_id: int):
 
 
 def is_enrolled(db, user_id: int, edition_id: int) -> bool:
+    """¿Está inscripto? Sirve para VER: sus entregas y devoluciones siguen siendo suyas.
+
+    Deliberadamente no mira si la inscripción está habilitada. A alguien deshabilitado se
+    le corta presentar cosas nuevas, no el acceso a lo que ya hizo —igual que con una
+    cursada cerrada—. Para eso está `inscripcion_habilitada`.
+    """
     return bool(db.execute(
         "SELECT 1 FROM enrollments WHERE user_id = ? AND edition_id = ?", (user_id, edition_id)
     ).fetchone())
+
+
+def inscripcion_habilitada(db, user_id: int, edition_id: int) -> bool:
+    """¿Puede presentar en esta cursada? Es por cursada, no por persona."""
+    fila = db.execute(
+        "SELECT active FROM enrollments WHERE user_id = ? AND edition_id = ?",
+        (user_id, edition_id),
+    ).fetchone()
+    return bool(fila and fila["active"])
 
 
 def enroll(db, user_id: int, edition_id: int) -> bool:

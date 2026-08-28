@@ -1,13 +1,14 @@
 {% extends "base.html" %}
 {% from "_ui.html" import info %}
 {% from "_circuito.html" import circuito %}
+{% from "_docentes.html" import selector_docentes %}
 {% block title %}{{ course.name }}{% endblock %}
 {% block content %}
 <p class="crumbs"><a href="{{ base }}/admin/cursos">← Cursos</a></p>
 <h1>{{ course.materia }} <span class="pill pill-edicion">{{ course.etiqueta }}</span>
   <span class="pill pill-mini {{ 'pill-ok' if course.active else 'pill-warn' }}">{{ 'Cursada abierta' if course.active else 'Cursada cerrada' }}</span></h1>
-<p class="muted"><a href="{{ base }}/admin/cursos/{{ course.id }}/duplicar">⧉ Duplicar esta edición</a>
-  · otras ediciones de {{ course.materia }} en <a href="{{ base }}/admin/materias">Materias</a></p>
+<p class="muted"><a href="{{ base }}/admin/cursos/{{ course.id }}/duplicar">⧉ Duplicar esta cursada</a>
+  {% if puede_crear(user) %}· otras cursadas de {{ course.materia }} en <a href="{{ base }}/admin/materias">Materias</a>{% endif %}</p>
 
 {{ circuito(pasos, avance, base) }}
 
@@ -57,8 +58,7 @@
 
 <form method="post" action="{{ base }}/admin/cursos/{{ course.id }}">
 <section class="card">
-  <h2>Edición</h2>
-  {% if user.role == 'admin' %}
+  <h2>Cursada</h2>
   <div class="grid2">
     <label>Etiqueta
       <input name="etiqueta" value="{{ course.etiqueta }}" required>
@@ -79,25 +79,14 @@
     </label>
   </div>
 
-  {% endif %}
-  <p style="margin-bottom: 4px"><strong>Docentes de esta edición</strong></p>
-  {% if user.role == 'admin' %}
-    {% for d in docentes %}
-      <label style="font-weight: 400">
-        <input type="checkbox" name="docentes" value="{{ d.id }}" {{ 'checked' if d.id in asignados_ids }} style="width: auto; margin-right: 8px">
-        {{ d.full_name }} <span class="muted small">({{ d.login }}{{ ' · coordinación' if d.role == 'admin' }}{{ ', deshabilitado' if not d.active }})</span>
-      </label>
-    {% else %}
-      <p class="muted">Todavía no hay docentes cargados — se crean en <a href="{{ base }}/admin/docentes">Docentes</a>.</p>
-    {% endfor %}
-    <div class="row-gap">
-      <button type="submit" class="btn primary">Guardar edición</button>
+  {{ selector_docentes(asignados, base, "Docentes de esta cursada") }}
+  <div class="row-gap">
+    <button type="submit" class="btn primary">Guardar cursada</button>
+    {% if user.role == 'admin' %}
       <button type="submit" name="action" value="eliminar" class="btn ghost" formnovalidate
-              onclick="return confirm('¿Eliminar la edición «{{ course.nombre }}» con sus instancias e inscripciones?')">Eliminar edición</button>
-    </div>
-  {% else %}
-    <p class="muted">{% for d in asignados %}{{ d.full_name }}{{ ' · ' if not loop.last }}{% else %}Sin docentes asignados.{% endfor %}</p>
-  {% endif %}
+              onclick="return confirm('¿Eliminar la cursada «{{ course.nombre }}» con sus instancias e inscripciones?')">Eliminar cursada</button>
+    {% endif %}
+  </div>
 </section>
 </form>
 
@@ -111,7 +100,6 @@
       <a class="btn small" href="{{ base }}/lti/importar/{{ course.id }}">Traer del campus</a>
       {% endif %}
       <a class="btn small" href="{{ base }}/admin/cursos/{{ course.id }}/notas.csv">Notas (CSV)</a>
-      <a class="btn small" href="{{ base }}/admin/credenciales.csv?curso={{ course.id }}">Credenciales (CSV)</a>
     </span>
   </div>
   <table>

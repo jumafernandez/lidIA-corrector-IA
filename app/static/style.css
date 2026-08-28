@@ -173,8 +173,17 @@ main a:hover, .foot a:hover { color: #0a4d54; -webkit-text-fill-color: #0a4d54; 
 .pill-mini { font-size: .74rem; padding: 2px 10px; }
 
 /* ---------- formularios ---------- */
+/* El atributo hidden lo aplica el navegador con display:none, que es una regla suya y
+   por lo tanto pierde contra cualquier regla nuestra: sin esto, un `<label hidden>` se
+   sigue viendo. Va antes que las reglas de elemento y se impone a propósito. */
+[hidden] { display: none !important; }
+
 label { display: block; font-family: var(--font-title); font-weight: 600; font-size: .88rem; margin: 12px 0; }
-input[type="text"], input[type="password"], input:not([type]), input[type="file"], textarea, select {
+/* Todos los campos de texto comparten el mismo aspecto. La lista es explícita porque
+   `input` a secas alcanzaría también a las casillas y a los radios. */
+input[type="text"], input[type="password"], input[type="search"], input[type="date"],
+input[type="email"], input[type="number"], input[type="tel"], input[type="url"],
+input:not([type]), input[type="file"], textarea, select {
   width: 100%; margin-top: 6px; padding: 9px 11px; border: 1px solid var(--line); border-radius: 6px;
   font-family: var(--font-body); font-size: .95rem; background: #fff; color: var(--ink);
 }
@@ -349,7 +358,6 @@ tbody tr:hover { background: var(--bg); }
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
   color: #fff; text-align: center; padding: 20px;
 }
-#lidia-overlay[hidden] { display: none; }
 #lidia-overlay .lidia { width: 170px; }
 #lidia-overlay p { font-family: var(--font-title); font-size: 1.05rem; font-weight: 600; max-width: 420px; }
 #lidia-overlay .dots::after { content: ""; animation: lidia-dots 1.4s steps(4) infinite; }
@@ -470,19 +478,24 @@ textarea.crudo-edit { font-size: .85rem; line-height: 1.55; }
 .circuito-guia p { margin: 0; font-size: .9rem; color: var(--primary-soft); }
 .circuito-guia a { font-weight: 600; }
 
-.pasos { display: flex; flex-wrap: wrap; gap: 4px; list-style: none; margin: 0; padding: 0; }
+/* La tira es una sola línea a propósito: partida en dos deja de leerse como un camino
+   y el último paso, colgado abajo, parece de otra cosa. Si la pantalla no da, se
+   desplaza en lugar de cortarse. */
+.pasos { display: flex; flex-wrap: nowrap; gap: 2px; list-style: none; margin: 0;
+  padding: 2px 0 6px; overflow-x: auto; scrollbar-width: thin; }
+.paso { flex-shrink: 0; }
 .paso { display: flex; align-items: center; }
 .paso:not(:last-child)::after {
-  content: ""; width: 14px; height: 1px; background: var(--line); margin: 0 2px;
+  content: ""; width: 9px; height: 1px; background: var(--line); margin: 0 1px; flex-shrink: 0;
 }
 .paso a {
-  display: flex; align-items: center; gap: 6px; text-decoration: none;
-  padding: 5px 11px 5px 6px; border-radius: 999px; border: 1px solid var(--line);
-  background: #fff; font-size: .8rem; white-space: nowrap; transition: border-color .15s;
+  display: flex; align-items: center; gap: 5px; text-decoration: none;
+  padding: 4px 10px 4px 5px; border-radius: 999px; border: 1px solid var(--line);
+  background: #fff; font-size: .76rem; white-space: nowrap; transition: border-color .15s;
 }
 .paso a:hover { border-color: var(--primary); }
 .paso-marca {
-  width: 19px; height: 19px; border-radius: 50%; flex-shrink: 0;
+  width: 17px; height: 17px; border-radius: 50%; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
   font-family: var(--font-title); font-size: .68rem; font-weight: 700;
   background: var(--bg); color: var(--muted); border: 1px solid var(--line);
@@ -505,3 +518,43 @@ button.leer {
 button.leer:hover { opacity: 1; }
 button.leer.sonando { opacity: 1; animation: leer-pulso 1.1s ease-in-out infinite; }
 @keyframes leer-pulso { 0%,100% { transform: scale(1); } 50% { transform: scale(1.18); } }
+
+/* ---- selector del equipo docente (buscar y agregar, en vez de recorrer casillas) ---- */
+.buscador-docentes { margin: 12px 0 0; }
+.buscador-docentes > p { margin-bottom: 8px; }
+.buscador-docentes .fichas { list-style: none; padding: 0; margin: 0 0 10px;
+  display: flex; flex-wrap: wrap; gap: 8px; }
+.buscador-docentes .fichas li { display: flex; align-items: center; gap: 8px;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 999px;
+  padding: 6px 8px 6px 15px; font-size: .92rem; line-height: 1.2; }
+.buscador-docentes .fichas li > span:first-of-type { font-weight: 600; }
+.buscador-docentes .quitar { border: none; background: none; cursor: pointer;
+  font-size: 1.15rem; line-height: 1; color: var(--muted); padding: 3px 8px;
+  border-radius: 999px; }
+.buscador-docentes .quitar:hover { background: #f2dede; color: #b3261e; }
+.campo-busca { position: relative; }
+.campo-busca input[type="search"] { margin-top: 0; }
+
+.sugerencias { list-style: none; margin: 6px 0 0; padding: 5px;
+  position: absolute; left: 0; right: 0; z-index: 30;
+  background: var(--card); border: 1px solid var(--line); border-radius: 8px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, .13); max-height: 272px; overflow-y: auto; }
+.sugerencias li { display: flex; gap: 10px; align-items: baseline; padding: 9px 11px;
+  border-radius: 6px; cursor: pointer; font-size: .95rem; }
+.sugerencias li > span:first-child { font-weight: 600; }
+.sugerencias li:hover, .sugerencias li:focus { background: var(--bg); outline: none; }
+.sugerencias li.sin-resultado { cursor: default; display: block; }
+.sugerencias li.sin-resultado:hover { background: none; }
+
+/* Lidia en los listados: mismo globo que en el circuito, pero suelto en la pantalla,
+   así que necesita su propio margen y no cuelga de la caja de pasos. */
+.consejo-suelto { margin: 0 0 18px; }
+
+/* Aviso que cuelga de la casilla que lo provoca: va corrido para que se lea como su
+   consecuencia y no como un mensaje suelto de la pantalla. */
+.flash.sangria { margin: 6px 0 14px 26px; }
+
+/* La carga del documento va arriba de los campos: es el camino que la mayoría quiere,
+   y los campos de abajo quedan para revisar lo leído o para cargar a mano. */
+.carga-modelo form { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 10px 0 4px; }
+.carga-modelo form .archivo { flex: 1 1 260px; }

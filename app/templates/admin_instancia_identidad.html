@@ -51,6 +51,11 @@
       es un intento más además de las prácticas. Sin marcar es solo formativa —se practica con Lidia y
       nadie firma nada—, útil cuando la validación la hacés por fuera del sistema.") }}
     </label>
+    <div class="flash warn sangria" id="aviso-sin-revision" hidden>
+      Esta instancia queda <strong>solo formativa</strong>: no va a tener entrega final, nadie firma ni
+      califica, y la devolución de Lidia es lo último que ve el estudiante. Tiene sentido cuando la
+      validación la hacés por fuera del sistema.
+    </div>
 
     <label style="font-weight: 400">
       <input type="checkbox" name="pide_propuesta" value="1" id="chk-propuesta"
@@ -62,10 +67,25 @@
       la corrección se hace igual y la entrega queda marcada.") }}
     </label>
 
+    <label style="font-weight: 400">
+      <input type="checkbox" name="pide_repo" value="1" id="chk-repo"
+             {{ 'checked' if editando and assignment.pide_repo }} style="width: auto; margin-right: 8px">
+      Se entrega con un repositorio de código
+      <span class="muted small" id="repo-solo-abierto" hidden>· solo en trabajos abiertos</span>
+      {{ info("El estudiantado declara el enlace a su repositorio al entregar, y Lidia lee el código y la
+      documentación para corregir contra lo que el trabajo efectivamente hace, no solo contra lo que el
+      informe dice que hace. Se leen repositorios públicos de GitHub o GitLab; queda registrado qué
+      archivos se leyeron, porque el repositorio sigue cambiando después de la corrección.
+
+      El código lo escribe el estudiantado, así que entra a la corrección como material a evaluar y nunca
+      como instrucciones. Conviene dejar marcada la revisión humana en estas instancias.") }}
+    </label>
+
     <p style="margin: 18px 0 4px"><strong>Entrega</strong></p>
     <div class="grid2">
       <label>Cómo se entrega
-        {{ info("Digital: archivo PDF, DOCX, TXT o MD, o texto pegado. Papel: fotos de la hoja resuelta,
+        {{ info("Digital: notebook de Jupyter (.ipynb), PDF, Word o texto plano, o texto pegado.
+        De un notebook se leen su prosa, su código y lo que dio al correr. Papel: fotos de la hoja resuelta,
         que Lidia transcribe. Ambas deja elegir al estudiantado. El equipo docente puede cargar el papel
         por alguien en cualquiera de las dos que incluya papel.") }}
         <select name="modalidad">
@@ -115,20 +135,28 @@ function seguirTipo() {
   nota.hidden = abierto;
   chkPropuesta.closest('label').style.opacity = abierto ? '' : '.55';
 
+  chkRepo.disabled = !abierto;
+  if (!abierto) chkRepo.checked = false;
+  notaRepo.hidden = abierto;
+  chkRepo.closest('label').style.opacity = abierto ? '' : '.55';
+
   const choice = t === 'choice';
   chkRevision.disabled = choice;
   if (choice) chkRevision.checked = true;
   chkRevision.closest('label').style.opacity = choice ? '.55' : '';
+  seguirRevision();
 }
 
-chkRevision.addEventListener('change', () => {
-  if (!chkRevision.checked && !confirm(
-      'Sin revisión humana, esta instancia no tiene entrega final: nadie firma ni califica, y la ' +
-      'devolución de Lidia es lo último que ve el estudiante.\n\n' +
-      'Tiene sentido cuando la validación la hacés por fuera del sistema. ¿Es lo que querés?')) {
-    chkRevision.checked = true;
-  }
-});
+// El aviso vive en la página y no en un confirm() del navegador: un modal del sistema
+// interrumpe, aparece una sola vez y se contesta sin leer. Acá la consecuencia queda a la
+// vista todo el tiempo que la casilla siga destildada, que es cuando importa.
+const chkRepo = document.getElementById('chk-repo');
+const notaRepo = document.getElementById('repo-solo-abierto');
+const avisoRevision = document.getElementById('aviso-sin-revision');
+function seguirRevision() {
+  avisoRevision.hidden = chkRevision.checked || chkRevision.disabled;
+}
+chkRevision.addEventListener('change', seguirRevision);
 tipos.forEach(r => r.addEventListener('change', seguirTipo));
 seguirTipo();
 </script>

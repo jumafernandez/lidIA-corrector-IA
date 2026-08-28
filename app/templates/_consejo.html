@@ -1,0 +1,18 @@
+{# Lidia en las pantallas del equipo docente.
+
+   Mismo trato que en el circuito de la ficha: habla cuando falta algo y se calla cuando
+   no. La diferencia es que en un listado no hay una cursada elegida, así que nombra a
+   cuál se refiere; si no, el consejo no se puede accionar.
+
+   `c` viene de circuito.consejo(): None significa que no hay nada que decir, y entonces
+   acá no se dibuja nada. #}
+{% macro consejo(c, base) %}
+{% if c %}
+{% from "_lidia.html" import lidia %}
+<div class="circuito-guia consejo-suelto">
+  {{ lidia('still') }}
+  <p data-leer>{% if c.cursada %}<strong>{{ c.cursada }}</strong> · {% endif %}{{ c.voz }}
+    {% if c.url %}<a href="{{ base }}{{ c.url }}">Ir a {{ c.titulo|lower }} →</a>{% endif %}</p>
+</div>
+{% endif %}
+{% endmacro %}
