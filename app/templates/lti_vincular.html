@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% from "_lidia.html" import lidia %}
+{% block title %}Conectar tu cuenta de LidIA{% endblock %}
+{% block topbar %}{% endblock %}
+{% block content %}
+<section class="card" style="max-width: 460px; margin: 20px auto">
+  <div style="text-align: center">{{ lidia('still') }}</div>
+  <h1 style="font-size: 1.2rem; text-align: center">Conectá tu cuenta de LidIA</h1>
+  <p class="muted small">Es la primera vez que entrás a LidIA desde el campus{% if nombre %}, {{ nombre }}{% endif %}.
+  Tu usuario del campus y el de LidIA no tienen por qué llamarse igual, así que necesitamos que te
+  identifiques <strong>una sola vez</strong>. Después no se vuelve a pedir.</p>
+
+  {% if err %}<div class="flash bad">{{ err }}</div>{% endif %}
+
+  <form method="post" action="{{ base }}/lti/vincular">
+    <input type="hidden" name="token" value="{{ token }}">
+    <label>Usuario de LidIA
+      <input name="login" required autofocus autocomplete="username">
+    </label>
+    <label>Contraseña
+      <input type="password" name="password" required autocomplete="current-password">
+    </label>
+    <button type="submit" class="btn primary">Conectar y continuar</button>
+  </form>
+</section>
+{% endblock %}

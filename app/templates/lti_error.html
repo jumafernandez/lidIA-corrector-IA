@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% from "_lidia.html" import lidia %}
+{% block title %}{{ titulo }}{% endblock %}
+{% block topbar %}{% endblock %}
+{% block content %}
+<section class="card center-note" style="max-width: 560px; margin: 40px auto">
+  {{ lidia('still') }}
+  <h1 style="font-size: 1.3rem; margin-top: 14px">{{ titulo }}</h1>
+  <p class="muted">{{ detalle }}</p>
+  <p class="muted small" style="margin-top: 18px">Entraste desde el campus.
+  Si el problema sigue, cerrá esta ventana y volvé a intentar desde la actividad.</p>
+</section>
+{% endblock %}

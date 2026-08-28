@@ -15,7 +15,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response, Streamin
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import auth, investigacion
+from . import auth, intentos, investigacion, lti, lti_storage
 from .db import (all_courses, ventana_entrega, fecha_corta, assignment_cfg, assignment_items, can_access_edition,
                  grupo_de, grupos_de_instancia, miembros_de,
                  course_editions, edition_assignments, edition_teachers, enroll, final_activa,
@@ -67,11 +67,14 @@ templates.env.filters["md"] = md
 templates.env.filters["fecha"] = fecha
 templates.env.filters["nombre_pila"] = first_name
 templates.env.filters["fecha_corta"] = fecha_corta
+app.include_router(lti.router)
 
 
 @app.on_event("startup")
 def _startup():
     init_db()
+    lti_storage.init_lti_db()
+    intentos.init_intentos_db()
 
 
 def render(request: Request, template: str, **ctx) -> HTMLResponse:
@@ -249,10 +252,16 @@ def login_form(request: Request):
 
 @app.post("/login")
 def login(request: Request, login_id: str = Form(...), password: str = Form(...)):
+    login_id = login_id.strip()
+    ip = intentos.origen(request)
+    if freno := intentos.bloqueado(login_id, ip):
+        return redirect("/login", err=freno)
     with get_db() as db:
-        row = db.execute("SELECT * FROM users WHERE login = ?", (login_id.strip(),)).fetchone()
+        row = db.execute("SELECT * FROM users WHERE login = ?", (login_id,)).fetchone()
     if not row or not auth.verify_password(password, row["password_hash"]):
+        intentos.fallo(login_id, ip)
         return redirect("/login", err="Usuario o contraseña incorrectos.")
+    intentos.acierto(login_id, ip)
     # los estudiantes deshabilitados sí entran (ven su historial y el aviso administrativo)
     if row["role"] != "student" and not row["active"]:
         return redirect("/login", err="Tu usuario está deshabilitado. Hablá con la coordinación.")
@@ -272,6 +281,7 @@ def logout(request: Request):
         auth.destroy_session(token)
     resp = redirect("/login", msg="Sesión cerrada.")
     resp.delete_cookie(auth.COOKIE_NAME, path=BASE_PATH or "/")
+    resp.delete_cookie(auth.LTI_COOKIE_NAME, path=BASE_PATH or "/")
     return resp
 
 
@@ -987,7 +997,9 @@ async def admin_final_post(request: Request, sid: int):
     if action == "aprobar":
         _, detail = emailer.enviar(owner["email"], emailer.devolucion_aprobada(
             first_name(owner["full_name"]), course, assignment, feedback.strip(), nota))
-        return redirect("/admin/entregas", msg=f"Devolución aprobada para {owner['full_name']}. {detail}")
+        campus = lti.enviar_nota_al_campus(assignment["id"], owner["id"], nota)
+        return redirect("/admin/entregas",
+                        msg=f"Devolución aprobada para {owner['full_name']}. {detail}{campus}")
     if action == "reabrir":
         _, detail = emailer.enviar(owner["email"], emailer.entrega_reabierta(
             first_name(owner["full_name"]), course, assignment, motivo_reabrir))
@@ -1231,6 +1243,7 @@ def admin_curso(request: Request, cid: int):
     return render(
         request, "admin_curso.html", course=course, asignados=asignados, asignados_ids=asignados_ids,
         docentes=docentes, instancias=instancias, inscriptos=inscriptos,
+        vinculo_campus=bool(lti_storage.servicios_de_cursada(cid)),
     )
 
 
@@ -1679,6 +1692,7 @@ def admin_instancia(request: Request, aid: int):
     return render(
         request, "admin_instancia.html", assignment=assignment, course=course,
         n_entregas=n_entregas, items=items, puntaje_total=items_puntaje_total(items),
+        vinculo_campus=bool(lti_storage.servicios_de_instancia(aid)),
     )
 
 

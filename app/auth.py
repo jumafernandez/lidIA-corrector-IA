@@ -7,6 +7,12 @@ from fastapi import Request
 from .db import get_db, utcnow
 
 COOKIE_NAME = "lidia_session"
+
+# Cookie aparte para las sesiones que entran desde el campus. Existe porque el ingreso
+# por LTI es una navegación entre sitios y necesita SameSite=None, mientras que la cookie
+# normal se queda en Lax, que hoy es la única defensa de LidIA contra CSRF. Separarlas
+# deja el login por contraseña exactamente como estaba.
+LTI_COOKIE_NAME = "lidia_lti"
 _ITERATIONS = 200_000
 
 
@@ -46,8 +52,16 @@ def destroy_session(token: str):
         db.execute("DELETE FROM sessions WHERE token = ?", (token,))
 
 
+def cookie_lti() -> dict:
+    """Atributos de la cookie de sesión que llega desde el campus."""
+    return {
+        "httponly": True, "secure": True, "samesite": "none",
+        "max_age": 60 * 60 * 12,
+    }
+
+
 def current_user(request: Request):
-    token = request.cookies.get(COOKIE_NAME)
+    token = request.cookies.get(COOKIE_NAME) or request.cookies.get(LTI_COOKIE_NAME)
     if not token:
         return None
     with get_db() as db:

@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% from "_ui.html" import info %}
+{% block title %}Traer del campus · {{ course.materia }}{% endblock %}
+{% block content %}
+<p class="crumbs"><a href="{{ base }}/admin/cursos/{{ course.id }}">← {{ course.materia }} {{ course.etiqueta }}</a></p>
+<h1>Estudiantes del campus
+  {{ info("La lista viene del curso de Moodle con el que esta cursada está vinculada. Se cruza por
+  documento: el nombre de usuario del campus tiene que ser el DNI. Los que ya están en LidIA no se
+  tocan, solo se inscriben si faltaba.") }}
+</h1>
+<p class="muted">{{ course.materia }} <span class="pill pill-edicion">{{ course.etiqueta }}</span> ·
+  {{ total_campus }} persona{{ 's' if total_campus != 1 }} en el curso del campus</p>
+
+<form method="post" action="{{ base }}/lti/importar/{{ course.id }}">
+
+{% if faltan_alta %}
+<section class="card">
+  <div class="row-between">
+    <h2>Están en el campus y no en LidIA ({{ faltan_alta|length }})</h2>
+    <span class="muted small">Se crean sin contraseña</span>
+  </div>
+  <p class="muted small">Entran desde el campus, así que no necesitan una. Si alguna vez quieren
+  entrar directo a LidIA, la piden por correo.</p>
+  <table>
+    <thead><tr><th style="width:36px"></th><th>DNI</th><th>Nombre</th><th>Correo</th></tr></thead>
+    <tbody>
+    {% for m in faltan_alta %}
+      <tr>
+        <td><input type="checkbox" name="dni" value="{{ m.usuario or m.sourcedid }}" checked style="width:auto"></td>
+        <td>{{ m.usuario or m.sourcedid }}</td>
+        <td>{{ m.nombre }}</td>
+        <td class="muted small">{{ m.email or '—' }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+{% set por_inscribir = cruzados | rejectattr('inscripto') | list %}
+{% if por_inscribir %}
+<section class="card">
+  <h2>Ya están en LidIA pero no inscriptos en esta cursada ({{ por_inscribir|length }})</h2>
+  <table>
+    <thead><tr><th style="width:36px"></th><th>DNI</th><th>Nombre en LidIA</th></tr></thead>
+    <tbody>
+    {% for c in por_inscribir %}
+      <tr>
+        <td><input type="checkbox" name="dni" value="{{ c.usuario.login }}" checked style="width:auto"></td>
+        <td>{{ c.usuario.login }}</td>
+        <td>{{ c.usuario.full_name }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+{% if faltan_alta or por_inscribir %}
+<div class="row-gap" style="margin-bottom: 22px">
+  <button type="submit" class="btn primary">Traer los marcados</button>
+  <a class="btn ghost" href="{{ base }}/admin/cursos/{{ course.id }}">Cancelar</a>
+</div>
+{% endif %}
+</form>
+
+{% set ya = cruzados | selectattr('inscripto') | list %}
+{% if ya %}
+<section class="card">
+  <h2>Al día ({{ ya|length }})</h2>
+  <p class="muted small">Están en el campus, en LidIA y en esta cursada. No hay nada que hacer.</p>
+  <p>{% for c in ya %}<span class="pill pill-mini">{{ c.usuario.full_name }}</span> {% endfor %}</p>
+  {% set sin_correo = ya | selectattr('sin_correo') | list %}
+  {% if sin_correo %}
+    <p class="muted small">{{ sin_correo|length }} sin correo cargado: se completa con el del campus
+    al traerlos de nuevo.</p>
+  {% endif %}
+</section>
+{% endif %}
+
+{% if sin_cruzar %}
+<div class="flash warn">
+  <strong>{{ sin_cruzar|length }} persona{{ 's' if sin_cruzar|length != 1 }} del campus sin documento.</strong>
+  El campus no mandó con qué cruzarlas, así que no se pueden traer. Casi siempre es que su nombre de
+  usuario en Moodle no es el DNI. Revisá esas cuentas allá:
+  {% for m in sin_cruzar %}<span class="pill pill-mini">{{ m.nombre }}</span> {% endfor %}
+</div>
+{% endif %}
+
+{% if sobrantes %}
+<div class="flash warn">
+  <strong>{{ sobrantes|length }} inscripto{{ 's' if sobrantes|length != 1 }} en LidIA que no figura{{ 'n' if sobrantes|length != 1 }}
+  en el campus.</strong>
+  No los doy de baja: puede ser una baja a medio hacer, alguien de otra comisión, o que su usuario
+  del campus no sea el DNI. Miralos y decidí vos.
+  <ul style="margin: 8px 0 0">
+  {% for s in sobrantes %}
+    <li>{{ s.usuario.full_name }} ({{ s.usuario.login }}){% if s.entregas %} — {{ s.entregas }} entrega{{ 's' if s.entregas != 1 }} en esta cursada{% endif %}</li>
+  {% endfor %}
+  </ul>
+</div>
+{% endif %}
+{% endblock %}

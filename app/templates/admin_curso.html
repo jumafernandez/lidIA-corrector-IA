@@ -104,6 +104,9 @@
     <span>
       <a class="btn small primary" href="{{ base }}/admin/estudiantes/nuevo?curso={{ course.id }}">Nuevo estudiante</a>
       <a class="btn small" href="{{ base }}/admin/estudiantes/importar?curso={{ course.id }}">Importar listado</a>
+      {% if vinculo_campus %}
+      <a class="btn small" href="{{ base }}/lti/importar/{{ course.id }}">Traer del campus</a>
+      {% endif %}
       <a class="btn small" href="{{ base }}/admin/cursos/{{ course.id }}/notas.csv">Notas (CSV)</a>
       <a class="btn small" href="{{ base }}/admin/credenciales.csv?curso={{ course.id }}">Credenciales (CSV)</a>
     </span>

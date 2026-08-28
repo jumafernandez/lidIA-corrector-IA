@@ -1,0 +1,9 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>Volviendo al campus…</title></head>
+<body onload="document.forms[0].submit()" style="font-family:system-ui;padding:30px;text-align:center">
+  <p>Guardando la elección y volviendo al campus…</p>
+  <form method="post" action="{{ destino }}">
+    <input type="hidden" name="JWT" value="{{ jwt }}">
+    <noscript><button type="submit">Continuar</button></noscript>
+  </form>
+</body></html>

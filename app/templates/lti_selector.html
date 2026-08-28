@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Elegir instancia{% endblock %}
+{% block topbar %}{% endblock %}
+{% block content %}
+<h1 style="font-size: 1.25rem">¿Qué entrega abre esta actividad?</h1>
+<p class="muted small">La estás agregando en <strong>{{ curso_campus }}</strong>. Al elegir, LidIA
+queda vinculada a ese curso: los estudiantes que entren por acá van a caer en esta instancia.</p>
+
+<form method="post" action="{{ base }}/lti/deeplink/elegir">
+  <input type="hidden" name="token" value="{{ token }}">
+  {% for c in cursadas %}
+  <section class="card" style="margin-bottom: 12px">
+    <h2 style="font-size: 1rem">{{ c.ed.materia }} <span class="pill pill-mini pill-edicion">{{ c.ed.etiqueta }}</span></h2>
+    {% for i in c.instancias %}
+      <label style="font-weight: 400; display: block; padding: 6px 0">
+        <input type="radio" name="instancia" value="{{ i.id }}" required style="width: auto; margin-right: 8px">
+        {{ i.name }}
+        <span class="muted small">· {{ {'abierto': 'trabajo abierto', 'escrito': 'examen escrito', 'choice': 'multiple choice'}[i.tipo] }}{% if not i.active %} · en borrador{% endif %}</span>
+      </label>
+    {% endfor %}
+  </section>
+  {% else %}
+  <section class="card center-note">
+    <p class="muted">No tenés instancias de evaluación creadas en LidIA todavía.</p>
+  </section>
+  {% endfor %}
+  {% if cursadas %}
+  <button type="submit" class="btn primary">Usar esta instancia</button>
+  {% endif %}
+</form>
+{% endblock %}

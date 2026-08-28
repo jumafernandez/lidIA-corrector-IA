@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% from "_ui.html" import info %}
+{% block title %}Notas en el campus · {{ assignment.name }}{% endblock %}
+{% block content %}
+<p class="crumbs"><a href="{{ base }}/admin/instancias/{{ assignment.id }}">← {{ assignment.name }}</a></p>
+<h1>Notas en el campus
+  {{ info("Compara lo que firmaste en LidIA con lo que hoy tiene el libro de calificaciones de Moodle.
+  Las que nunca se mandaron se pueden mandar desde acá. Las que no coinciden hay que resolverlas en
+  Moodle: cuando una nota se edita a mano en el libro, Moodle la marca como anulada y desde entonces
+  ignora lo que mande la actividad.") }}
+</h1>
+<p class="muted">{{ course.materia }} {{ course.etiqueta }} · {{ assignment.name }}</p>
+
+{% if err %}<div class="flash bad">{{ err }}</div>{% endif %}
+
+{% set distintas = filas | selectattr('estado', 'equalto', 'distinta') | list %}
+{% set sin_mandar = filas | selectattr('estado', 'equalto', 'sin_mandar') | list %}
+{% set solo_alla = filas | selectattr('estado', 'equalto', 'solo_alla') | list %}
+{% set sin_ident = filas | selectattr('estado', 'equalto', 'sin_identidad') | list %}
+{% set iguales = filas | selectattr('estado', 'equalto', 'igual') | list %}
+
+{% if distintas %}
+<div class="flash warn">
+  <strong>{{ distintas|length }} nota{{ 's' if distintas|length != 1 }} no coincide{{ 'n' if distintas|length != 1 }} con el campus.</strong>
+  Alguien la{{ "s" if distintas|length != 1 }} editó a mano en el libro de calificaciones de Moodle.
+  Desde ese momento Moodle ignora lo que mande LidIA para esa nota, así que <strong>si querés que valga la de LidIA hay que
+  cambiarla en Moodle</strong>.
+  <table style="margin-top: 10px">
+    <thead><tr><th>Estudiante</th><th>En LidIA</th><th>En el campus</th></tr></thead>
+    <tbody>
+    {% for f in distintas %}
+      <tr><td>{{ f.nombre }} <span class="muted small">{{ f.login }}</span></td>
+          <td><strong>{{ '%g' % f.aca }}</strong></td><td>{{ '%g' % f.alla }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% if sin_mandar %}
+<form method="post" action="{{ base }}/lti/notas/{{ assignment.id }}">
+<section class="card">
+  <h2>Todavía no están en el campus ({{ sin_mandar|length }})</h2>
+  <p class="muted small">Se firmaron en LidIA pero el campus no las tiene. Suele pasar con las que
+  se corrigieron antes de vincular la actividad.</p>
+  <table>
+    <thead><tr><th style="width:36px"></th><th>Estudiante</th><th>Nota en LidIA</th></tr></thead>
+    <tbody>
+    {% for f in sin_mandar %}
+      <tr>
+        <td><input type="checkbox" name="user_id" value="{{ f.user_id }}" checked style="width:auto"></td>
+        <td>{{ f.nombre }} <span class="muted small">{{ f.login }}</span></td>
+        <td><strong>{{ '%g' % f.aca }}</strong></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <div class="row-gap" style="margin-top: 12px">
+    <button type="submit" class="btn primary">Mandarlas al campus</button>
+  </div>
+</section>
+</form>
+{% endif %}
+
+{% if solo_alla %}
+<div class="flash warn">
+  <strong>{{ solo_alla|length }} nota{{ 's' if solo_alla|length != 1 }} que solo existe{{ 'n' if solo_alla|length != 1 }} en el campus.</strong>
+  Alguien calificó en Moodle sin pasar por LidIA. No las traigo: acá una nota va con una devolución
+  firmada detrás.
+  <ul style="margin: 8px 0 0">
+  {% for f in solo_alla %}<li>{{ f.nombre }} — {{ '%g' % f.alla }} en el campus</li>{% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+{% if sin_ident %}
+<div class="flash warn">
+  <strong>{{ sin_ident|length }} con nota en LidIA que nunca entró desde el campus.</strong>
+  Hasta que entren una vez desde allá no hay forma de saber a qué usuario de Moodle corresponden.
+  {% for f in sin_ident %}<span class="pill pill-mini">{{ f.nombre }}</span> {% endfor %}
+</div>
+{% endif %}
+
+{% if iguales %}
+<section class="card">
+  <h2>Coinciden ({{ iguales|length }})</h2>
+  <p>{% for f in iguales %}<span class="pill pill-mini pill-ok">{{ f.nombre }} · {{ '%g' % f.aca }}</span> {% endfor %}</p>
+</section>
+{% endif %}
+
+{% if not filas and not err %}
+<section class="card center-note">
+  <p class="muted">Todavía no hay ninguna nota firmada en esta instancia.</p>
+</section>
+{% endif %}
+{% endblock %}

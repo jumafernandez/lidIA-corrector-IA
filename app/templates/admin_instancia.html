@@ -139,6 +139,9 @@
 
   <div class="savebar">
     <button type="submit" class="btn primary">Guardar instancia</button>
+    {% if vinculo_campus %}
+    <a class="btn" href="{{ base }}/lti/notas/{{ assignment.id }}">Notas en el campus</a>
+    {% endif %}
     <button type="submit" name="action" value="eliminar" class="btn ghost" formnovalidate
             onclick="return confirm('¿Eliminar la instancia «{{ assignment.name }}»?')">Eliminar</button>
     <span class="nota">Para activarla hace falta el material de corrección completo.</span>
