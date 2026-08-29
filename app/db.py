@@ -345,6 +345,23 @@ def init_db():
             # veces pasó, que es algo que nadie mide y este sistema puede.
             db.execute("ALTER TABLE submissions ADD COLUMN alerta TEXT DEFAULT ''")
 
+        cols = {r["name"] for r in db.execute("PRAGMA table_info(submissions)")}
+        if "promovida_de" not in cols:
+            # 016 — Una final puede nacer de una práctica que el estudiante decidió
+            # presentar tal cual, sin volver a corregir. Se guarda de cuál salió y no se
+            # muta la práctica: el historial de intentos es dato del proceso, y perderlo
+            # para ahorrar una fila sería perder justamente lo que se quiere estudiar.
+            db.execute("ALTER TABLE submissions ADD COLUMN promovida_de INTEGER"
+                       " REFERENCES submissions(id)")
+
+        cols = {r["name"] for r in db.execute("PRAGMA table_info(submissions)")}
+        if "niveles" not in cols:
+            # 017 — El nivel alcanzado en cada criterio de la rúbrica. Ya estaba en la
+            # devolución, pero en prosa: guardado como dato se puede mostrar de un vistazo
+            # y, sobre todo, se puede medir —si un criterio mejora entre una entrega y la
+            # siguiente, o si la firma del docente coincide con lo que la IA había marcado—.
+            db.execute("ALTER TABLE submissions ADD COLUMN niveles TEXT DEFAULT ''")
+
         for key, value in DEFAULT_CONFIG.items():
             db.execute("INSERT OR IGNORE INTO config (key, value) VALUES (?, ?)", (key, value))
 

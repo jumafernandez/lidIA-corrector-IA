@@ -12,7 +12,7 @@
   {{ n_fotos }} foto{{ 's' if n_fotos != 1 }}</p>
 
 <form method="post" action="{{ base }}/admin/instancias/{{ assignment.id }}/papel/registrar"
-      data-confirm="Vas a registrar esta entrega final a nombre de {{ alumno.full_name }}. ¿Confirmás?"
+      data-confirm="Vas a registrar esta entrega definitiva a nombre de {{ alumno.full_name }}. ¿Confirmás?"
       data-lidia="Lidia está corrigiendo el examen">
 <section class="card">
   <input type="hidden" name="alumno_id" value="{{ alumno.id }}">

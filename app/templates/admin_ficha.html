@@ -93,7 +93,7 @@ así que no va a poder entrar. Cargáselo acá abajo.</div>
           <td>{{ e.created_at|fecha }}</td>
           <td class="muted small">{{ e.course_name|truncate(20) }}</td>
           <td class="muted small">{{ e.instancia|truncate(18) }}</td>
-          <td>{{ 'Final' if e.kind == 'final' else 'Práctica' }}</td>
+          <td>{{ 'Definitiva' if e.kind == 'final' else 'Mejorable' }}</td>
           <td>{{ {'ok':'Con devolución','pendiente':'Por revisar','aprobada':'Aprobada','reabierta':'Reabierta','error':'Error'}[e.status] }}</td>
           <td><a href="{{ base }}/entrega/{{ e.id }}">Ver</a></td>
         </tr>

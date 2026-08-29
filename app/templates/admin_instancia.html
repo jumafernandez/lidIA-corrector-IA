@@ -124,15 +124,15 @@
         <textarea name="prompt_extra" rows="3" placeholder="Ej.: si el trabajo no declara el uso de IA generativa en su desarrollo, pedirlo explícitamente">{{ assignment.prompt_extra }}</textarea>
       </label>
       {% if assignment.tipo != 'choice' %}
-      <label>Devoluciones de práctica (1–10)
+      <label>Devoluciones antes de la definitiva (1–10)
         <input name="max_practicas" value="{{ assignment.max_practicas }}">
-        <span class="ayuda">{% if assignment.requiere_revision %}Más la entrega final: {{ assignment.max_practicas + 1 }} intentos en total.{% else %}Sin entrega final: son todos los intentos que tiene.{% endif %}</span>
+        <span class="ayuda">{% if assignment.requiere_revision %}Más la entrega definitiva: {{ assignment.max_practicas + 1 }} intentos en total.{% else %}Sin entrega definitiva: son todos los intentos que tiene.{% endif %}</span>
       </label>
       <label>Preguntas por devolución (0–10)
         <input name="max_preguntas" value="{{ assignment.max_preguntas }}">
       </label>
       <label>Integrantes por grupo (1–8)
-        {{ info("1 = entrega individual. Con 2 o más, el estudiantado arma sus grupos y el cupo de prácticas pasa a ser del grupo, no de cada persona. Es un máximo: alguien puede entregar solo.") }}
+        {{ info("1 = entrega individual. Con 2 o más, el estudiantado arma sus grupos y el cupo de devoluciones pasa a ser del grupo, no de cada persona. Es un máximo: alguien puede entregar solo.") }}
         <input name="max_integrantes" value="{{ assignment.max_integrantes }}">
       </label>
       {% endif %}
@@ -146,7 +146,7 @@
       <input type="checkbox" name="active" value="1"
              {{ 'checked' if assignment.active or not assignment.consigna }} style="width: auto; margin-right: 8px">
       Activa — visible para los estudiantes del curso
-      {% if assignment.tipo == 'choice' %}<span class="muted small">· entrega única, sin cupos de práctica</span>{% endif %}
+      {% if assignment.tipo == 'choice' %}<span class="muted small">· entrega única, sin devoluciones previas</span>{% endif %}
     </label>
   </section>
 

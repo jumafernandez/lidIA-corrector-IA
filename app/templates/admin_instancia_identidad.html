@@ -47,12 +47,12 @@
       <input type="checkbox" name="requiere_revision" value="1" id="chk-revision"
              {{ 'checked' if (assignment.requiere_revision if editando else true) }} style="width: auto; margin-right: 8px">
       Requiere revisión humana final
-      {{ info("Marcado, la instancia tiene una entrega final que una persona revisa, firma y califica:
-      es un intento más además de las prácticas. Sin marcar es solo formativa —se practica con Lidia y
+      {{ info("Marcado, la instancia tiene una entrega definitiva que una persona revisa, firma y califica:
+      es un intento más además de las devoluciones previas. Sin marcar es solo formativa —se practica con Lidia y
       nadie firma nada—, útil cuando la validación la hacés por fuera del sistema.") }}
     </label>
     <div class="flash warn sangria" id="aviso-sin-revision" hidden>
-      Esta instancia queda <strong>solo formativa</strong>: no va a tener entrega final, nadie firma ni
+      Esta instancia queda <strong>solo formativa</strong>: no va a tener entrega definitiva, nadie firma ni
       califica, y la devolución de Lidia es lo último que ve el estudiante. Tiene sentido cuando la
       validación la hacés por fuera del sistema.
     </div>
@@ -103,7 +103,7 @@
       </label>
       <label>Cierra el
         {{ info("Último día para entregar, inclusive. Pasada esa fecha no se admiten entregas nuevas —ni
-        prácticas ni finales— y el estudiantado sigue viendo lo que ya entregó. Dejala vacía si no hay
+        entregas mejorables ni definitivas— y el estudiantado sigue viendo lo que ya entregó. Dejala vacía si no hay
         plazo.") }}
         <input type="date" name="fecha_cierre" value="{{ assignment.fecha_cierre if editando else '' }}">
       </label>

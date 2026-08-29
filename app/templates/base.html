@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Roboto+Slab:wght@400;500;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="{{ base }}/static/style.css?v=46">
+<link rel="stylesheet" href="{{ base }}/static/style.css?v=52">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='80' font-size='80'>🧠</text></svg>">
 </head>
 <body class="{% block bodyclass %}{% endblock %}">
@@ -300,6 +300,29 @@ document.querySelectorAll(".buscador-docentes").forEach(caja => {
   });
   document.addEventListener("click", ev => { if (!caja.contains(ev.target)) cerrar(); });
   revisarVacio();
+});
+
+// Bloques largos que ya se leyeron antes: la consigna, la rúbrica. Se muestran recortados
+// para que el formulario de entrega no quede a media pantalla de distancia, con un botón
+// para verlos enteros. No se usa un recuadro con scroll propio a propósito: en el teléfono
+// atrapa el gesto —se quiere bajar la página y baja el recuadro— y es peor que el problema.
+document.querySelectorAll("[data-recortable]").forEach(caja => {
+  // Unas doce líneas a la vista: alcanza para reconocer el texto y decidir si hace falta
+  // abrirlo. El margen extra evita recortar algo que sobresale por dos renglones, donde el
+  // botón molesta más de lo que ahorra.
+  const TOPE = 600;
+  if (caja.scrollHeight <= TOPE + 150) return;
+  caja.classList.add("recortado");
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "btn small ghost ver-completa";
+  b.textContent = "Ver completa";
+  b.addEventListener("click", () => {
+    const abierto = caja.classList.toggle("recortado");
+    b.textContent = abierto ? "Ver completa" : "Ver menos";
+    if (abierto) caja.scrollIntoView({ block: "nearest" });
+  });
+  caja.after(b);
 });
 
 // menús del encabezado: uno abierto por vez, y se cierran al hacer clic afuera

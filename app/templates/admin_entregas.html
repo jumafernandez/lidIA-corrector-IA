@@ -19,7 +19,7 @@
 <div class="stats">
   <div class="stat"><b>{{ stats.activos }}</b><span>estudiantes habilitados</span></div>
   <div class="stat"><b>{{ stats.estudiantes - stats.activos }}</b><span>deshabilitados</span></div>
-  <div class="stat"><b>{{ stats.practicas }}</b><span>devoluciones de práctica</span></div>
+  <div class="stat"><b>{{ stats.practicas }}</b><span>entregas mejorables</span></div>
   <div class="stat {{ 'stat-warn' if stats.pendientes }}"><b>{{ stats.pendientes }}</b><span>finales por revisar</span></div>
 </div>
 
@@ -33,7 +33,7 @@
         <td>{{ e.full_name }} <span class="muted small">({{ e.login }})</span></td>
         <td class="muted small">{{ e.course_name|truncate(26) }}</td>
         <td class="muted small">{{ e.instancia|truncate(22) }}</td>
-        <td>{{ 'Final' if e.kind == 'final' else 'Práctica' }}</td>
+        <td>{{ 'Definitiva' if e.kind == 'final' else 'Mejorable' }}</td>
         <td><span class="pill pill-mini {{ 'pill-warn' if e.status == 'pendiente' else ('pill-ok' if e.status in ('ok','aprobada') else '') }}">
           {{ {'ok':'Con devolución','pendiente':'Por revisar','aprobada':'Aprobada','reabierta':'Reabierta','error':'Error'}[e.status] }}</span></td>
         <td>

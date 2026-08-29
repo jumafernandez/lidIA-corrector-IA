@@ -17,8 +17,8 @@ from fastapi.responses import (PlainTextResponse, HTMLResponse, JSONResponse, Re
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import (auth, circuito as circ, claves, intentos, investigacion, lti, lti_storage,
-               modelos, repos)
+from . import (auth, choice as choice_mod, circuito as circ, claves, intentos,
+               investigacion, lti, lti_storage, modelos, repos)
 from .db import (all_courses, ventana_entrega, fecha_corta, assignment_cfg, assignment_items, can_access_edition,
                  inscripcion_habilitada,
                  grupo_de, grupos_de_instancia, miembros_de,
@@ -30,8 +30,9 @@ from .db import (all_courses, ventana_entrega, fecha_corta, assignment_cfg, assi
 from . import emailer
 from .emailer import desvio, smtp_configured
 from .extract import ExtractionError, extract_text
-from .llm import (LLMError, answer_question, generate_feedback, model_info,
-                  revisar_integridad, split_items, transcribe_images)
+from .llm import (LLMError, answer_question, criterios_de, explicar_errores,
+                  generate_feedback, leer_respuestas_faltantes, model_info,
+                  revisar_integridad, separar_niveles, split_items, transcribe_images)
 
 BASE_DIR = os.path.dirname(__file__)
 # prefijo bajo el que se sirve la app detrás del proxy (ej.: /entregas). Vacío en local.
@@ -188,6 +189,57 @@ def puede_editar_materia(db, user, mid: int) -> bool:
 
 # Se registra acá y no arriba porque la función se define en este punto del módulo.
 templates.env.globals["puede_crear"] = puede_crear_materias
+
+
+def _corregir_choice(cfg, nombre, work_text, marcadas=None):
+    """Corrige un multiple choice: la nota por código, la explicación por el modelo.
+
+    Comparar letras y sumar puntajes es aritmética, y una aritmética equivocada por un
+    modelo no se nota: la devolución igual suena bien. Acá el resultado sale de código, y
+    el modelo se ocupa de lo único que una cuenta no puede hacer, que es explicarle a
+    alguien por qué se equivocó.
+
+    Devuelve (markdown, modelo, telemetría, nota).
+    """
+    items = cfg.get("items") or []
+    if not items:
+        raise LLMError("La instancia no tiene preguntas cargadas: no hay contra qué corregir.")
+
+    if marcadas:
+        # Camino normal: se respondió marcando, así que no hay nada que interpretar.
+        resultado = choice_mod.corregir_marcadas(items, marcadas)
+    else:
+        # Camino del examen en papel: lo único que hay es la transcripción de la hoja.
+        resultado = choice_mod.corregir(items, work_text)
+        faltantes = [d["n"] for d in resultado["detalle"] if d["sin_responder"]]
+        if faltantes:
+            extra = leer_respuestas_faltantes(work_text, faltantes)
+            if extra:
+                texto = work_text + "\n" + "\n".join(f"{n}-{l}" for n, l in extra.items())
+                resultado = choice_mod.corregir(items, texto)
+
+    errores = [d for d in resultado["detalle"] if not d["acerto"]]
+    explicacion, modelo, tele = "", "", {}
+    if errores:
+        explicacion, modelo, tele = explicar_errores(cfg, nombre, errores)
+
+    partes = ["## Resultado", choice_mod.tabla_markdown(resultado)]
+    if explicacion:
+        partes += ["## Por qué", explicacion]
+    elif not errores:
+        partes.append("Respondiste todo bien. No hay nada que corregir acá.")
+    return "\n\n".join(partes), modelo or "deterministico", tele, resultado["nota"]
+
+
+def _niveles(sub) -> list:
+    """Los niveles por criterio guardados con la entrega, listos para mostrar."""
+    crudo = sub["niveles"] if "niveles" in sub.keys() else ""
+    if not (crudo or "").strip():
+        return []
+    try:
+        return json.loads(crudo)
+    except (ValueError, TypeError):
+        return []
 
 
 def _repo_leido(sub) -> str:
@@ -660,6 +712,7 @@ def panel_instancia(request: Request, aid: int):
                 (user["id"], aid),
             ).fetchall()
         items = assignment_items(db, aid)
+        habilitada = inscripcion_habilitada(db, user["id"], course["id"])
         grupo = grupo_de(db, user["id"], aid)
         companeros = [m for m in miembros_de(db, grupo["id"]) if m["id"] != user["id"]] if grupo else []
         grupo_cerrado = bool(grupo) and bool(db.execute(
@@ -668,12 +721,16 @@ def panel_instancia(request: Request, aid: int):
         ).fetchone())
     maxp = assignment["max_practicas"]
     abierta, motivo_cierre = ventana_entrega(assignment)
+    # En el multiple choice se responde marcando la opción, en la misma lista de preguntas.
+    # Solo mientras se pueda entregar: después esa lista vuelve a ser algo para leer.
+    respondible = bool(assignment["tipo"] == "choice" and not final and abierta and habilitada)
     return render(
         request, "panel.html", cfg=cfg, course=course, assignment=assignment,
         usadas=usadas, maxp=maxp, restantes=max(0, maxp - usadas), final=final,
         entregas=entregas, items=items, puntaje_total=items_puntaje_total(items),
         grupo=grupo, companeros=companeros, grupo_cerrado=grupo_cerrado,
         ventana_abierta=abierta, motivo_cierre=motivo_cierre,
+        respondible=respondible,
     )
 
 
@@ -776,6 +833,13 @@ async def entregar(
     if kind not in ("practica", "final"):
         return redirect("/panel", err="Tipo de entrega inválido.")
     back = f"/panel/instancia/{assignment_id}"
+    # En el multiple choice la respuesta llega marcada, un campo por pregunta. Se leen del
+    # formulario crudo porque son tantas como preguntas tenga el examen.
+    formulario = await request.form()
+    marcadas = {}
+    for clave, valor in formulario.multi_items():
+        if clave.startswith("resp_") and clave[5:].isdigit() and str(valor).strip():
+            marcadas[int(clave[5:])] = str(valor).strip().lower()[:1]
 
     with get_db() as db:
         assignment = get_assignment(db, assignment_id)
@@ -789,14 +853,14 @@ async def entregar(
                 "nada nuevo acá. Hablá con el equipo docente de la cursada."))
         cfg = assignment_cfg(db, course, assignment)
         if kind == "final" and not assignment["requiere_revision"]:
-            return redirect(back, err="Esta instancia es solo de práctica: no tiene entrega final.")
+            return redirect(back, err="Esta instancia es solo formativa: no tiene entrega definitiva.")
         abierta, motivo = ventana_entrega(assignment)
         if not abierta:
             return redirect(back, err=motivo)
         if kind == "practica" and assignment["tipo"] == "choice":
             return redirect(back, err="Esta evaluación tiene una única oportunidad de entrega.")
         if kind == "practica" and practicas_usadas(db, user["id"], assignment_id) >= assignment["max_practicas"]:
-            return redirect(back, err="Ya usaste todas tus devoluciones de práctica.")
+            return redirect(back, err="Ya usaste todas tus devoluciones. Podés presentar la entrega definitiva.")
         if kind == "final" and final_activa(db, user["id"], assignment_id):
             return redirect(back, err="Ya tenés una entrega final en curso.")
         if assignment["modalidad"] == "papel" and origen != "foto":
@@ -817,6 +881,13 @@ async def entregar(
                 filename = f"examen en papel ({fotos_n} foto{'s' if fotos_n != 1 else ''})"
             if len(work_text) < min_len:
                 return redirect(back, err="El texto pegado es demasiado corto para evaluarlo como entrega.")
+        elif marcadas:
+            # Un multiple choice respondido marcando no tiene archivo ni texto: lo que
+            # entregó son las opciones elegidas. Se guardan legibles para que la entrega
+            # se pueda leer después sin necesitar la aplicación.
+            work_text = "\n".join(f"{n}-{marcadas[n]}" for n in sorted(marcadas))
+            truncated = False
+            filename = "respuestas marcadas"
         else:
             return redirect(back, err="Subí un archivo o pegá el texto de tu trabajo.")
     except ExtractionError as exc:
@@ -852,10 +923,19 @@ async def entregar(
         x for x in (work_text, propuesta_text, cfg.get("repo_texto", "")) if x))
 
     tele = {}
+    nota_calculada = None
+    niveles = []
     try:
-        feedback, model, tele = generate_feedback(
-            cfg, first_name(user["full_name"]), user["profile"] or "", work_text, kind, truncated
-        )
+        if assignment["tipo"] == "choice":
+            feedback, model, tele, nota_calculada = _corregir_choice(
+                cfg, first_name(user["full_name"]), work_text, marcadas)
+        else:
+            feedback, model, tele = generate_feedback(
+                cfg, first_name(user["full_name"]), user["profile"] or "", work_text, kind, truncated
+            )
+        # Los niveles por criterio vienen al final de la devolución, en un bloque aparte:
+        # se guardan como dato y se quitan del texto que lee la persona.
+        feedback, niveles = separar_niveles(feedback, criterios_de(cfg.get("rubrica", "")))
         status = "pendiente" if kind == "final" else "ok"
         error = ""
     except LLMError as exc:
@@ -871,18 +951,22 @@ async def entregar(
             "INSERT INTO submissions (user_id, assignment_id, kind, status, original_filename, work_text,"
             " text_chars, truncated, ai_feedback_md, model_used, error, created_at,"
             " grupo_id, cfg_snapshot, tokens_in, tokens_out, latencia_ms, finish_reason,"
-            " propuesta_text, sin_propuesta, repo_url, repo_resumen, alerta)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " propuesta_text, sin_propuesta, repo_url, repo_resumen, alerta, nota, niveles)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (user["id"], assignment_id, kind, status, filename, work_text, len(work_text), int(truncated),
              feedback, model, error, utcnow(),
              grupo["id"] if grupo else None, json.dumps(cfg, ensure_ascii=False),
              tele.get("tokens_in"), tele.get("tokens_out"), tele.get("latencia_ms"),
              tele.get("finish_reason"), propuesta_text, int(sin_propuesta),
-             repo_url, repo_resumen, alerta),
+             repo_url, repo_resumen, alerta,
+             # En el multiple choice la nota viene calculada y queda propuesta en la ficha;
+             # el docente la confirma o la cambia, igual que antes. En el resto va vacía.
+             nota_calculada,
+             json.dumps(niveles, ensure_ascii=False) if niveles else ""),
         )
         sid = cur.lastrowid
     if kind == "final":
-        return redirect(f"/entrega/{sid}", msg="Entrega final registrada: queda en revisión del equipo docente.")
+        return redirect(f"/entrega/{sid}", msg="Entrega definitiva registrada: queda en revisión del equipo docente.")
     return redirect(f"/entrega/{sid}")
 
 
@@ -926,11 +1010,11 @@ async def entregar_fotos(
         if not abierta:
             return redirect(back, err=motivo)
         if kind == "final" and not assignment["requiere_revision"]:
-            return redirect(back, err="Esta instancia es solo de práctica: no tiene entrega final.")
+            return redirect(back, err="Esta instancia es solo formativa: no tiene entrega definitiva.")
         if kind == "practica" and assignment["tipo"] == "choice":
             return redirect(back, err="Esta evaluación tiene una única oportunidad de entrega.")
         if kind == "practica" and practicas_usadas(db, user["id"], assignment_id) >= assignment["max_practicas"]:
-            return redirect(back, err="Ya usaste todas tus devoluciones de práctica.")
+            return redirect(back, err="Ya usaste todas tus devoluciones. Podés presentar la entrega definitiva.")
         if kind == "final" and final_activa(db, user["id"], assignment_id):
             return redirect(back, err="Ya tenés una entrega final en curso.")
 
@@ -1024,15 +1108,70 @@ def entrega(request: Request, sid: int):
         # primera vez que el estudiante abre su devolución: dice si la leyó, y cuándo
         if user["role"] == "student" and not sub["first_viewed_at"] and sub["ai_feedback_md"]:
             db.execute("UPDATE submissions SET first_viewed_at = ? WHERE id = ?", (utcnow(), sub["id"]))
+        habilitada = inscripcion_habilitada(db, user["id"], course["id"])
+        # ¿Puede presentar ESTA práctica como final, tal cual está? Se calcula acá adentro,
+        # con la conexión abierta.
+        abierta_p, _ = ventana_entrega(assignment)
+        puede_promover = bool(
+            user["role"] == "student" and sub["kind"] == "practica" and sub["ai_feedback_md"]
+            and assignment["requiere_revision"] and habilitada and abierta_p
+            and not final_activa(db, user["id"], assignment["id"])
+        )
     maxq = assignment["max_preguntas"]
     puede_preguntar = (
         user["role"] == "student" and sub["kind"] == "practica" and len(qs) < maxq
-        and inscripcion_habilitada(db, user["id"], course["id"])
+        and habilitada
     )
     return render(
         request, "entrega.html", sub=sub, owner=owner, course=course, assignment=assignment,
         qs=qs, maxq=maxq, q_restantes=max(0, maxq - len(qs)), puede_preguntar=puede_preguntar,
+        puede_promover=puede_promover, niveles=_niveles(sub),
     )
+
+
+@app.post("/entrega/{sid}/final")
+def promover_a_final(request: Request, sid: int):
+    """Presenta una práctica ya corregida como entrega final, sin volver a corregirla.
+
+    Si la devolución que recibió le sirve, rehacerla cuesta una llamada al modelo y puede
+    salir distinta sobre el mismo texto: el mismo trabajo no debería recibir devoluciones
+    distintas según cuántas veces se apretó el botón. Se registra una final nueva que
+    apunta a la práctica de la que salió, y la práctica queda intacta.
+    """
+    user, resp = _require(request, "student")
+    if resp:
+        return resp
+    volver = f"/entrega/{sid}"
+    with get_db() as db:
+        sub, assignment, course = _load_submission(db, sid)
+        if not sub or sub["user_id"] != user["id"] or sub["kind"] != "practica":
+            return redirect("/panel")
+        if not sub["ai_feedback_md"]:
+            return redirect(volver, err="Esta entrega todavía no tiene devolución.")
+        if not assignment["requiere_revision"]:
+            return redirect(volver, err="Esta instancia es solo formativa: no tiene entrega definitiva.")
+        if not inscripcion_habilitada(db, user["id"], course["id"]):
+            return redirect(volver, err="Tu inscripción a esta cursada está deshabilitada.")
+        abierta, motivo = ventana_entrega(assignment)
+        if not abierta:
+            return redirect(volver, err=motivo or "La entrega está cerrada.")
+        if final_activa(db, user["id"], assignment["id"]):
+            return redirect(volver, err="Ya tenés una entrega definitiva registrada en esta instancia.")
+        grupo = grupo_de(db, user["id"], assignment["id"])
+        nueva = db.execute(
+            "INSERT INTO submissions (user_id, assignment_id, kind, status, original_filename,"
+            " work_text, text_chars, truncated, ai_feedback_md, model_used, error, created_at,"
+            " grupo_id, cfg_snapshot, propuesta_text, sin_propuesta, repo_url, repo_resumen,"
+            " alerta, nota, niveles, promovida_de)"
+            " SELECT user_id, assignment_id, 'final', 'pendiente', original_filename,"
+            " work_text, text_chars, truncated, ai_feedback_md, model_used, error, ?,"
+            " ?, cfg_snapshot, propuesta_text, sin_propuesta, repo_url, repo_resumen,"
+            " alerta, nota, niveles, id FROM submissions WHERE id = ?",
+            (utcnow(), grupo["id"] if grupo else None, sid),
+        ).lastrowid
+    return redirect(f"/entrega/{nueva}", msg=(
+        "Listo: presentaste esta versión como entrega final, con la devolución que ya tenías. "
+        "Ahora la revisa y la firma el equipo docente."))
 
 
 @app.post("/entrega/{sid}/valorar")
@@ -1173,7 +1312,8 @@ def admin_final(request: Request, sid: int):
         owner = db.execute("SELECT * FROM users WHERE id = ?", (sub["user_id"],)).fetchone()
     return render(
         request, "admin_final.html", sub=sub, owner=owner, course=course,
-        assignment=assignment, repo_leido=_repo_leido(sub), smtp_ok=smtp_configured(),
+        assignment=assignment, repo_leido=_repo_leido(sub), niveles=_niveles(sub),
+        smtp_ok=smtp_configured(),
     )
 
 
@@ -2097,7 +2237,7 @@ async def admin_instancia_post(request: Request, aid: int):
                 raise ValueError
         except ValueError:
             return redirect(f"/admin/instancias/{aid}",
-                            err="Los cupos deben ser números (prácticas 1–10, preguntas 0–10, integrantes 1–8).")
+                            err="Los cupos deben ser números (devoluciones 1–10, preguntas 0–10, integrantes 1–8).")
         name = (form.get("name") or "").strip() or assignment["name"]
         if name != assignment["name"] and db.execute(
             "SELECT 1 FROM assignments WHERE edition_id = ? AND name = ? AND id != ?", (cid, name, aid)

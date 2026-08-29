@@ -39,9 +39,9 @@
     {% elif it.a.tipo == 'choice' %}
       Tenés una única oportunidad de entrega.
     {% elif it.restantes == 0 %}
-      Usaste todas las devoluciones de práctica; queda la entrega final.
+      Usaste todas las devoluciones; queda presentar la definitiva.
     {% else %}
-      Devoluciones de práctica disponibles.
+      Devoluciones disponibles antes de la definitiva.
     {% endif %}
     <a href="{{ base }}/panel/instancia/{{ it.a.id }}">Entrar →</a>
   </p>

@@ -1,0 +1,25 @@
+{# Los criterios de la rúbrica con el nivel que alcanzó cada uno.
+
+   El dato ya estaba en la devolución, escrito en prosa: acá se muestra de un vistazo, para
+   que la persona sepa dónde está parada sin leer cuatro párrafos. No es una nota ni un
+   veredicto —no dice aprobado— dice qué criterio está resuelto y cuál falta, que es lo
+   accionable y además es de la rúbrica del docente, no una opinión del sistema. #}
+{% macro niveles(datos) %}
+{% if datos %}
+{% set clase = {'Logrado': 'ok', 'En desarrollo': 'medio', 'Insuficiente': 'bajo', 'No presente': 'falta'} %}
+<section class="card niveles">
+  <h2>Criterio por criterio</h2>
+  <ul>
+    {% for d in datos %}
+    <li class="nivel-{{ clase.get(d.nivel, 'medio') }}">
+      <span class="nivel-marca" aria-hidden="true"></span>
+      <span class="nivel-criterio">{{ d.criterio or ('Criterio ' ~ d.n) }}</span>
+      <span class="nivel-etiqueta">{{ d.nivel }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+  <p class="muted small">Es el estado de cada criterio de la rúbrica, no una calificación.
+  {% if datos|selectattr('nivel', 'equalto', 'Logrado')|list|length == datos|length %}Están todos logrados.{% endif %}</p>
+</section>
+{% endif %}
+{% endmacro %}

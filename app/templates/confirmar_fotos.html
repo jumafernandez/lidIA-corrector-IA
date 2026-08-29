@@ -20,7 +20,7 @@
   que está en el papel, y el equipo docente lo tiene para cotejar.</p>
 
   <form method="post" action="{{ base }}/entregar"
-        data-confirm="{{ 'Vas a registrar tu ÚNICA entrega de esta evaluación con esta transcripción. ¿Confirmás?' if assignment.tipo == 'choice' or kind == 'final' else 'Esto consume 1 de tus devoluciones de práctica con esta transcripción. ¿Confirmás?' }}"
+        data-confirm="{{ 'Vas a registrar tu ÚNICA entrega de esta evaluación con esta transcripción. ¿Confirmás?' if assignment.tipo == 'choice' or kind == 'final' else 'Esto consume 1 de tus devoluciones con esta transcripción. ¿Confirmás?' }}"
         data-lidia="{{ 'Lidia está corrigiendo tu examen' if kind == 'final' or assignment.tipo == 'choice' else 'Lidia está leyendo tu examen' }}">
     <input type="hidden" name="kind" value="{{ kind }}">
     <input type="hidden" name="assignment_id" value="{{ assignment.id }}">

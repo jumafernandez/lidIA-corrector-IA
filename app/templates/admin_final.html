@@ -1,9 +1,15 @@
 {% extends "base.html" %}
 {% from "_ui.html" import info %}
-{% block title %}Revisar entrega final{% endblock %}
+{% block title %}Revisar entrega definitiva{% endblock %}
+{% from "_niveles.html" import niveles as tira_niveles %}
 {% block content %}
 <p class="crumbs"><a href="{{ base }}/admin/entregas">← Entregas</a></p>
-<h1>Entrega final de {{ owner.full_name }}</h1>
+<h1>Entrega definitiva de {{ owner.full_name }}</h1>
+{% if sub.promovida_de %}
+<div class="flash warn">Esta devolución se generó sobre una <strong>entrega mejorable</strong> y el estudiante
+  presentó esa misma versión como definitiva, sin volver a corregirla. Es la que él ya leyó: revisala con
+  ese origen en mente antes de firmar.</div>
+{% endif %}
 {% if sub.alerta %}
 <div class="flash bad">⚠ <strong>El material entregado contenía instrucciones dirigidas al corrector.</strong>
   {{ sub.alerta }}<br>
@@ -24,6 +30,8 @@ y no evaluó la coherencia con lo propuesto: ese criterio lo tenés que mirar vo
   <pre class="crudo">{{ sub.propuesta_text }}</pre>
 </details>
 {% endif %}
+{{ tira_niveles(niveles) }}
+
 <p class="muted">{{ course.name }} · {{ assignment.name }} · {{ sub.created_at|fecha }} hs · {{ sub.original_filename or 'texto pegado' }} · {{ sub.text_chars }} caracteres
   {% if owner.email %} · al aprobar se notifica a {{ owner.email }}{% if not smtp_ok %} <em>(SMTP sin configurar: quedará solo en la app)</em>{% endif %}{% endif %}</p>
 

@@ -1,11 +1,12 @@
 {% extends "base.html" %}
 {% from "_lidia.html" import lidia %}
 {% block title %}Entrega{% endblock %}
+{% from "_niveles.html" import niveles as tira_niveles %}
 {% block content %}
 <p class="crumbs"><a href="{{ base }}{{ '/admin/entregas' if user.role in ('admin', 'docente') else '/panel/instancia/' ~ sub.assignment_id }}">← Volver</a></p>
 
 <div class="row-between">
-  <h1>{{ 'Entrega final' if sub.kind == 'final' else 'Devolución de práctica' }}</h1>
+  <h1>{{ 'Entrega definitiva' if sub.kind == 'final' else 'Devolución de tu entrega' }}</h1>
   <span class="pill {{ 'pill-ok' if sub.status in ('ok','aprobada') else 'pill-warn' }}">
     {{ {'ok':'Con devolución','pendiente':'En revisión docente','aprobada':'Aprobada','reabierta':'Reabierta','error':'Error'}[sub.status] }}
   </span>
@@ -25,7 +26,7 @@ la devolución no evalúa si el trabajo es coherente con lo que se propuso.</div
   {% if sub.status == 'pendiente' and user.role == 'student' %}
     <section class="card center-note">
       <h2>En revisión del equipo docente</h2>
-      <p class="muted">Tu entrega final fue registrada. Cuando el equipo docente apruebe la devolución, la vas a ver acá{% if owner.email %} y te va a llegar a {{ owner.email }}{% endif %}.</p>
+      <p class="muted">Tu entrega definitiva fue registrada. Cuando el equipo docente apruebe la devolución, la vas a ver acá{% if owner.email %} y te va a llegar a {{ owner.email }}{% endif %}.</p>
     </section>
   {% elif sub.status == 'aprobada' %}
     <section class="card">
@@ -94,6 +95,24 @@ la devolución no evalúa si el trabajo es coherente con lo que se propuso.</div
       <p class="muted">Usaste todas las preguntas de esta entrega.</p>
     {% endif %}
   </section>
+{% endif %}
+
+{{ tira_niveles(niveles) }}
+
+{% if puede_promover %}
+<section class="card">
+  <h2>¿Y ahora?</h2>
+  <p class="muted small">Podés seguir trabajando y presentar otra versión, o dar esta por buena y
+  presentarla como tu entrega definitiva. Si la presentás, va con la devolución que ya tenés: no se
+  vuelve a corregir, la revisa y la firma el equipo docente.</p>
+  <div class="row-gap">
+    <a class="btn" href="{{ base }}/panel/instancia/{{ assignment.id }}">Seguir trabajando</a>
+    <form method="post" action="{{ base }}/entrega/{{ sub.id }}/final" class="inline"
+          data-confirm="Vas a presentar ESTA versión como entrega definitiva, con esta misma devolución. Es tu entrega definitiva. ¿Confirmás?">
+      <button type="submit" class="btn accent">Presentar esta versión como definitiva</button>
+    </form>
+  </div>
+</section>
 {% endif %}
 
 {% if user.role in ('admin', 'docente') %}

@@ -20,18 +20,18 @@
 <div class="grid2">
   <section class="card">
     <h2>Consigna</h2>
-    <div class="prose">{{ assignment.consigna|md|safe }}</div>
+    <div class="prose" data-recortable>{{ assignment.consigna|md|safe }}</div>
   </section>
   <section class="card">
     <h2>Criterios de evaluación</h2>
-    <div class="prose">{{ assignment.rubrica|md|safe }}</div>
+    <div class="prose" data-recortable>{{ assignment.rubrica|md|safe }}</div>
   </section>
 </div>
 {% else %}
 {% if assignment.consigna %}
 <section class="card">
   <h2>Consigna</h2>
-  <div class="prose">{{ assignment.consigna|md|safe }}</div>
+  <div class="prose" data-recortable>{{ assignment.consigna|md|safe }}</div>
 </section>
 {% endif %}
 {% if items %}
@@ -45,9 +45,24 @@
     <li>
       <div class="prose">{{ it.enunciado|md|safe }}</div>
       {% if it.opciones %}
-      <ol class="opciones" type="a">
-        {% for opcion in it.opciones.splitlines() %}{% if opcion.strip() %}<li>{{ opcion }}</li>{% endif %}{% endfor %}
-      </ol>
+        {% if respondible %}
+        {# En el multiple choice se responde acá, marcando. No hay nada que escribir ni,
+           por lo tanto, nada que interpretar después: la respuesta llega ya elegida.
+           Los controles viven fuera del formulario y se asocian con form=. #}
+        <ul class="opciones-elegir">
+          {% for opcion in it.opciones.splitlines() | map('trim') | select | list %}
+          <li><label>
+            <input type="radio" form="form-entrega" required
+                   name="resp_{{ it.orden }}" value="{{ 'abcdefgh'[loop.index0] }}">
+            <span class="opcion-letra">{{ 'abcdefgh'[loop.index0] }})</span> {{ opcion }}
+          </label></li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <ol class="opciones" type="a">
+          {% for opcion in it.opciones.splitlines() | map('trim') | select | list %}<li>{{ opcion }}</li>{% endfor %}
+        </ol>
+        {% endif %}
       {% endif %}
       <span class="muted small">{{ it.puntaje|round(2)|int if it.puntaje == it.puntaje|round(0) else it.puntaje }} punto{{ '' if it.puntaje == 1 else 's' }}</span>
     </li>
@@ -58,7 +73,7 @@
 {% if assignment.rubrica %}
 <section class="card">
   <h2>Criterios de evaluación</h2>
-  <div class="prose">{{ assignment.rubrica|md|safe }}</div>
+  <div class="prose" data-recortable>{{ assignment.rubrica|md|safe }}</div>
 </section>
 {% endif %}
 {% endif %}
@@ -71,7 +86,7 @@
   </div>
   {% if grupo %}
     <p>Entregás junto a <strong>{% for c in companeros %}{{ c.full_name }}{{ ', ' if not loop.last }}{% else %}nadie todavía{% endfor %}</strong>.
-    El cupo de devoluciones y la entrega final son del grupo: lo que entrega uno, vale para todos.</p>
+    El cupo de devoluciones y la entrega definitiva son del grupo: lo que entrega uno, vale para todos.</p>
     {% if grupo_cerrado %}
       <p class="muted small">El grupo ya tiene entregas, así que quedó cerrado. Si hubo un error, hablá con el equipo docente.</p>
     {% else %}
@@ -104,7 +119,7 @@
 {% if assignment.tipo != 'choice' %}
 <section class="card">
   <div class="row-between">
-    <h2>Devoluciones de práctica</h2>
+    <h2>Presentar una versión</h2>
     <span class="pill {{ 'pill-warn' if restantes == 0 else 'pill-ok' }}">Te quedan {{ restantes }} de {{ maxp }}</span>
   </div>
   <p class="muted">Cada devolución evalúa una <strong>entrega completa</strong> contra la rúbrica. Usalas como si presentaras de verdad:
@@ -112,7 +127,7 @@
 
   {% if user.active and restantes > 0 and ventana_abierta %}
   <form method="post" action="{{ base }}/entregar" enctype="multipart/form-data"
-        data-confirm="Esto consume 1 de tus {{ restantes }} devoluciones de práctica restantes. ¿Presentás esta versión?"
+        data-confirm="Esto consume 1 de tus {{ restantes }} devoluciones restantes. Vas a poder seguir mejorándola. ¿Presentás esta versión?"
         data-lidia="Lidia está leyendo tu trabajo"
         {% if assignment.pide_propuesta %}data-avisar-si-falta="propuesta"
         data-aviso="Vas a entregar sin adjuntar tu propuesta aprobada. Lidia va a corregir todo lo demás, pero no va a poder evaluar si el trabajo es coherente con lo que propusiste, y la entrega queda marcada como entregada sin propuesta. ¿Seguís igual?"{% endif %}>
@@ -158,38 +173,38 @@
   </details>
   {% endif %}
   {% elif user.active and ventana_abierta %}
-    <p class="muted">Usaste todas tus devoluciones de práctica. Queda la entrega final.</p>
+    <p class="muted">Usaste todas tus devoluciones. Queda presentar la entrega definitiva.</p>
   {% endif %}
 </section>
 {% endif %}
 
 {% if not assignment.requiere_revision %}
 <section class="card">
-  <h2>Sin entrega final</h2>
-  <p class="muted">Esta instancia es de práctica: trabajás con las devoluciones de Lidia y no hay nada
+  <h2>Sin entrega definitiva</h2>
+  <p class="muted">Esta instancia es solo formativa: trabajás con las devoluciones de Lidia y no hay nada
   que entregar para que el equipo docente firme. Lo que hagas con este trabajo después te lo indica tu
   docente.</p>
 </section>
 {% else %}
 <section class="card">
   <div class="row-between">
-    <h2>{{ 'Tu entrega' if assignment.tipo == 'choice' else 'Entrega final' }}</h2>
+    <h2>{{ 'Tu entrega' if assignment.tipo == 'choice' else 'Entrega definitiva' }}</h2>
     {% if final %}
       <span class="pill {{ 'pill-ok' if final.status == 'aprobada' else 'pill-warn' }}">{{ 'Aprobada' if final.status == 'aprobada' else 'En revisión docente' }}</span>
     {% endif %}
   </div>
   {% if final %}
-    <p>Tu entrega final del {{ final.created_at|fecha }} hs
+    <p>Tu entrega definitiva del {{ final.created_at|fecha }} hs
       {% if final.status == 'aprobada' %} ya tiene la devolución del equipo docente.{% else %} está siendo revisada por el equipo docente.{% endif %}
       <a href="{{ base }}/entrega/{{ final.id }}">Ver detalle</a></p>
   {% elif user.active and ventana_abierta %}
     {% if assignment.tipo == 'choice' %}
       <p class="muted">Tenés una <strong>única oportunidad de entrega</strong>. La corrección la revisa y la firma el equipo docente.</p>
     {% else %}
-      <p class="muted">La entrega final no consume devoluciones de práctica. La revisa y la firma el equipo docente.</p>
+      <p class="muted">La entrega definitiva no consume devoluciones. La revisa y la firma el equipo docente.</p>
     {% endif %}
-    <form method="post" action="{{ base }}/entregar" enctype="multipart/form-data"
-          data-confirm="{{ 'Vas a registrar tu ÚNICA entrega de esta evaluación, que pasa a corrección del equipo docente. ¿Confirmás?' if assignment.tipo == 'choice' else 'Vas a registrar tu ENTREGA FINAL, que pasa a revisión del equipo docente. ¿Confirmás?' }}"
+    <form id="form-entrega" method="post" action="{{ base }}/entregar" enctype="multipart/form-data"
+          data-confirm="{{ 'Vas a registrar tu ÚNICA entrega de esta evaluación, que pasa a corrección del equipo docente. ¿Confirmás?' if assignment.tipo == 'choice' else 'Vas a registrar tu ENTREGA DEFINITIVA, que pasa a revisión del equipo docente. ¿Confirmás?' }}"
           data-lidia="Lidia está registrando tu entrega"
           {% if assignment.pide_propuesta %}data-avisar-si-falta="propuesta"
           data-aviso="Vas a entregar sin adjuntar tu propuesta aprobada. Lidia va a corregir todo lo demás, pero no va a poder evaluar si el trabajo es coherente con lo que propusiste, y la entrega queda marcada como entregada sin propuesta. ¿Seguís igual?"{% endif %}>
@@ -219,7 +234,7 @@
         <summary>…o pegá el texto de tu trabajo</summary>
         <textarea name="texto" rows="8" placeholder="Pegá acá el contenido completo de tu trabajo"></textarea>
       </details>
-      <button type="submit" class="btn accent">{{ 'Entregar' if assignment.tipo == 'choice' else 'Marcar como entrega final' }}</button>
+      <button type="submit" class="btn accent">{{ 'Entregar' if assignment.tipo == 'choice' else 'Marcar como entrega definitiva' }}</button>
     </form>
     {% if assignment.modalidad != 'digital' %}
     <details class="alt">
@@ -236,7 +251,7 @@
     </details>
     {% endif %}
   {% else %}
-    <p class="muted">La entrega final no está disponible en este momento.</p>
+    <p class="muted">La entrega definitiva no está disponible en este momento.</p>
   {% endif %}
 </section>
 {% endif %}
@@ -250,7 +265,7 @@
     {% for e in entregas %}
       <tr>
         <td>{{ e.created_at|fecha }}</td>
-        <td>{{ 'Entrega final' if e.kind == 'final' else 'Práctica' }}</td>
+        <td>{{ 'Definitiva' if e.kind == 'final' else 'Mejorable' }}</td>
         <td>{{ e.original_filename or 'texto pegado' }}{% if e.autor and e.autor != user.full_name %} <span class="muted small">· {{ e.autor|nombre_pila }}</span>{% endif %}</td>
         <td><span class="pill pill-mini {{ 'pill-ok' if e.status in ('ok','aprobada') else 'pill-warn' }}">
           {{ {'ok':'Con devolución','pendiente':'En revisión','aprobada':'Aprobada','reabierta':'Reabierta','error':'Error'}[e.status] }}</span></td>

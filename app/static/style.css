@@ -558,3 +558,57 @@ button.leer.sonando { opacity: 1; animation: leer-pulso 1.1s ease-in-out infinit
    y los campos de abajo quedan para revisar lo leído o para cargar a mano. */
 .carga-modelo form { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 10px 0 4px; }
 .carga-modelo form .archivo { flex: 1 1 260px; }
+
+/* Opciones de un multiple choice cuando se responden marcando. La etiqueta entera es el
+   área de clic: en el teléfono acertarle solo al círculo es incómodo. */
+.opciones-elegir { list-style: none; margin: 8px 0 0; padding: 0; }
+.opciones-elegir li { margin: 0 0 2px; }
+.opciones-elegir label { display: flex; align-items: baseline; gap: 9px; cursor: pointer;
+  font-weight: 400; margin: 0; padding: 8px 11px; border: 1px solid transparent;
+  border-radius: 8px; }
+.opciones-elegir label:hover { background: var(--bg); }
+.opciones-elegir label:has(input:checked) { background: var(--primary-light);
+  border-color: var(--primary); }
+.opciones-elegir input[type="radio"] { width: auto; margin: 0; flex-shrink: 0; }
+.opcion-letra { font-family: var(--font-title); font-weight: 700; color: var(--muted); }
+.opciones-elegir label:has(input:checked) .opcion-letra { color: var(--primary); }
+
+/* Texto justificado en lo que se lee de corrido: la consigna, los criterios, las preguntas
+   y la devolución. Se justifican los párrafos, no los ítems de una lista ni las tablas: un
+   criterio de rúbrica o una opción de multiple choice son renglones cortos, y estirarlos a
+   los dos márgenes abre huecos entre palabras en vez de ordenar. */
+.prose p,
+.enunciado p,
+.preguntas li > .prose p { text-align: justify; text-justify: inter-word; }
+/* Palabras largas —una URL, un nombre de variable— no tienen que abrir un río de blanco. */
+.prose, .enunciado { hyphens: auto; overflow-wrap: break-word; }
+.prose table, .prose pre, .prose code { text-align: left; hyphens: none; }
+
+/* Bloque de texto recortado, con degradado al final para que se vea que sigue. */
+.recortado { max-height: 600px; overflow: hidden; position: relative; }
+.recortado::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 76px;
+  background: linear-gradient(to bottom, transparent, var(--card));
+  pointer-events: none;
+}
+.ver-completa { margin-top: 6px; }
+
+/* Criterio por criterio: el estado de cada uno de un vistazo. El color va acompañado de la
+   palabra, nunca solo: quien no distingue verde de rojo tiene que poder leerlo igual. */
+.niveles ul { list-style: none; margin: 6px 0 10px; padding: 0; }
+.niveles li { display: flex; align-items: baseline; gap: 10px; padding: 8px 0;
+  border-bottom: 1px solid var(--line); font-size: .93rem; }
+.niveles li:last-child { border-bottom: none; }
+.nivel-marca { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+  align-self: center; }
+.nivel-criterio { flex: 1; }
+.nivel-etiqueta { font-family: var(--font-title); font-weight: 700; font-size: .78rem;
+  white-space: nowrap; padding: 3px 10px; border-radius: 999px; }
+.nivel-ok    .nivel-marca { background: var(--ok-ink); }
+.nivel-ok    .nivel-etiqueta { background: var(--ok-bg); color: #14532d; }
+.nivel-medio .nivel-marca { background: #b45309; }
+.nivel-medio .nivel-etiqueta { background: #fdf3e0; color: #7c4a03; }
+.nivel-bajo  .nivel-marca { background: var(--bad-ink); }
+.nivel-bajo  .nivel-etiqueta { background: #fbeaea; color: #7f1d1d; }
+.nivel-falta .nivel-marca { background: var(--muted); }
+.nivel-falta .nivel-etiqueta { background: var(--bg); color: var(--muted); }
