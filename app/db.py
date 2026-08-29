@@ -44,7 +44,9 @@ CREATE TABLE IF NOT EXISTS course_editions (
     etiqueta TEXT NOT NULL,
     active INTEGER NOT NULL DEFAULT 1,     -- inactiva = cursada cerrada (solo lectura)
     created_at TEXT NOT NULL,
-    UNIQUE (course_id, etiqueta)
+    -- La etiqueta se repite entre años: «1C» existe todos los años. Lo que no se puede
+    -- repetir es la combinación de materia, año y etiqueta.
+    UNIQUE (course_id, anio, etiqueta)
 );
 CREATE INDEX IF NOT EXISTS idx_course_editions_course ON course_editions(course_id);
 
@@ -200,6 +202,58 @@ def get_db():
     try:
         yield conn
         conn.commit()
+    finally:
+        conn.close()
+
+
+def _reconstruir_ediciones():
+    """025 — Cambia la restricción de unicidad de las cursadas.
+
+    Venía siendo materia + etiqueta, de cuando la etiqueta cargaba con el año adentro.
+    Con el año como campo propio esa regla estorba: «1C» existe todos los años, y la
+    combinación que de verdad no se puede repetir es materia + año + etiqueta.
+
+    SQLite no sabe cambiar una restricción de tabla, así que hay que reconstruirla: tabla
+    nueva, copiar, borrar la vieja, renombrar. El CREATE de la nueva se saca del de la
+    vieja cambiándole solo esa línea, para que no haya forma de que las columnas queden
+    distintas. Va en su propia conexión y en autocommit porque `PRAGMA foreign_keys` se
+    ignora dentro de una transacción, y sin apagarlas el DROP no se puede hacer.
+    """
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        actual = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'course_editions'"
+        ).fetchone()
+        if not actual or "UNIQUE (course_id, etiqueta)" not in actual["sql"]:
+            return  # ya está reconstruida, o es una base nueva que nació bien
+        columnas = [r["name"] for r in conn.execute("PRAGMA table_info(course_editions)")]
+        lista = ", ".join(columnas)
+        creacion = (actual["sql"]
+                    .replace("UNIQUE (course_id, etiqueta)", "UNIQUE (course_id, anio, etiqueta)")
+                    .replace("course_editions", "course_editions_nueva", 1))
+
+        conn.isolation_level = None
+        conn.execute("PRAGMA foreign_keys = OFF")
+        conn.execute("BEGIN")
+        try:
+            conn.execute(creacion)
+            conn.execute(f"INSERT INTO course_editions_nueva ({lista})"
+                         f" SELECT {lista} FROM course_editions")
+            conn.execute("DROP TABLE course_editions")
+            conn.execute("ALTER TABLE course_editions_nueva RENAME TO course_editions")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_course_editions_course"
+                         " ON course_editions(course_id)")
+            rotas = conn.execute("PRAGMA foreign_key_check").fetchall()
+            if rotas:
+                raise sqlite3.IntegrityError(
+                    f"la reconstrucción dejó {len(rotas)} referencias rotas")
+            conn.execute("COMMIT")
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
+        finally:
+            conn.execute("PRAGMA foreign_keys = ON")
     finally:
         conn.close()
 
@@ -463,6 +517,10 @@ def init_db():
 
         for key, value in DEFAULT_CONFIG.items():
             db.execute("INSERT OR IGNORE INTO config (key, value) VALUES (?, ?)", (key, value))
+
+    # Fuera del bloque de arriba: necesita que `anio` exista y esté rellenado, y maneja
+    # su propia conexión porque apaga las claves foráneas mientras reconstruye.
+    _reconstruir_ediciones()
 
 
 def get_config(db) -> dict:

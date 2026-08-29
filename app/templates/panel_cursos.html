@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_lidia.html" import lidia %}
+{% from "_ui.html" import filtros_anio %}
 {% block title %}Mi espacio{% endblock %}
 {% block content %}
 <div class="saludo">
@@ -14,15 +15,7 @@
   <div class="flash warn">{{ cfg.banner_deshabilitado }}</div>
 {% endif %}
 
-{# El filtro recién aparece el año en que empieza a servir: mientras todas las cursadas
-   sean del año en curso, tres botones que no cambian nada son ruido. #}
-{% if cuantas.anteriores %}
-<nav class="filtros" aria-label="Filtrar cursadas">
-  <a class="filtro {{ 'activo' if filtro == 'actual' }}" href="{{ base }}/panel?ver=actual">{{ anio }} <span class="filtro-n">{{ cuantas.actual }}</span></a>
-  <a class="filtro {{ 'activo' if filtro == 'anteriores' }}" href="{{ base }}/panel?ver=anteriores">Anteriores <span class="filtro-n">{{ cuantas.anteriores }}</span></a>
-  <a class="filtro {{ 'activo' if filtro == 'todas' }}" href="{{ base }}/panel?ver=todas">Todas <span class="filtro-n">{{ cuantas.todas }}</span></a>
-</nav>
-{% endif %}
+{{ filtros_anio(base, '/panel', filtro, cuantas, anio) }}
 
 {% if items %}
 {# Las mismas tarjetas del tablero docente: elegir entre cursos es una lista de cosas
@@ -40,9 +33,15 @@
 </div>
 {% elif cuantas.todas %}
 <section class="card center-note">
+  {% if filtro == 'anteriores' %}
+  <h2>No tenés cursadas anteriores a {{ anio }}</h2>
+  <p class="muted">Todas las tuyas son de este año.
+  <a href="{{ base }}/panel?ver=actual">Ver las de {{ anio }}</a>.</p>
+  {% else %}
   <h2>No tenés cursadas de {{ anio }}</h2>
   <p class="muted">Las de años anteriores siguen ahí, con todas tus entregas y devoluciones.
   <a href="{{ base }}/panel?ver=anteriores">Ver las anteriores</a>.</p>
+  {% endif %}
 </section>
 {% else %}
 <section class="card center-note">

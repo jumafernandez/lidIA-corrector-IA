@@ -11,3 +11,16 @@
   <div class="info-panel">{{ texto }}</div>
 </details>
 {% endmacro %}
+
+{# Filtro por año de un listado de cursadas. Aparece recién el año en que empieza a
+   servir: mientras todas sean del año en curso, tres botones que no cambian nada son
+   ruido. Lo comparten el espacio del estudiante y el listado del equipo docente. #}
+{% macro filtros_anio(base, url, filtro, cuantas, anio) %}
+{% if cuantas.anteriores %}
+<nav class="filtros" aria-label="Filtrar cursadas">
+  <a class="filtro {{ 'activo' if filtro == 'actual' }}" href="{{ base }}{{ url }}?ver=actual">{{ anio }} <span class="filtro-n">{{ cuantas.actual }}</span></a>
+  <a class="filtro {{ 'activo' if filtro == 'anteriores' }}" href="{{ base }}{{ url }}?ver=anteriores">Anteriores <span class="filtro-n">{{ cuantas.anteriores }}</span></a>
+  <a class="filtro {{ 'activo' if filtro == 'todas' }}" href="{{ base }}{{ url }}?ver=todas">Todas <span class="filtro-n">{{ cuantas.todas }}</span></a>
+</nav>
+{% endif %}
+{% endmacro %}

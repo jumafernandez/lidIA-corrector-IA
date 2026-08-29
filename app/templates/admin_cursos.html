@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Cursos{% endblock %}
 {% from "_consejo.html" import consejo %}
+{% from "_ui.html" import filtros_anio %}
 {% block content %}
 <div class="row-between head">
   <h1>Cursos</h1>
@@ -14,6 +15,7 @@
 <p class="muted small guia">Cada fila es una <strong>cursada</strong>: un dictado concreto de su materia.
 Los estudiantes, los docentes y las instancias son propios de cada cursada.</p>
 {{ consejo(aviso, base) }}
+{{ filtros_anio(base, '/admin/cursos', filtro, cuantas, anio) }}
 
 <section class="card">
   <table>
@@ -43,7 +45,13 @@ Los estudiantes, los docentes y las instancias son propios de cada cursada.</p>
       </tr>
       {% endfor %}
     {% else %}
+      {% if cuantas.todas %}
+      <tr><td colspan="7" class="muted">{% if filtro == 'anteriores' %}No hay cursadas anteriores a {{ anio }}.
+        <a href="{{ base }}/admin/cursos?ver=actual">Ver las de {{ anio }}</a>.{% else %}No hay cursadas de {{ anio }}.
+        <a href="{{ base }}/admin/cursos?ver=anteriores">Ver las anteriores</a>.{% endif %}</td></tr>
+      {% else %}
       <tr><td colspan="7" class="muted">{% if user.role == 'admin' %}Todavía no hay cursadas. Creá la primera con «Nueva cursada».{% elif puede_crear(user) %}Todavía no tenés cursadas. Creá la primera con «Nueva cursada», o pedile a la coordinación que te asigne a una que ya exista.{% else %}No tenés cursadas asignadas — pedile a la coordinación que te asigne.{% endif %}</td></tr>
+      {% endif %}
     {% endfor %}
     </tbody>
   </table>

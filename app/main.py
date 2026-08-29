@@ -687,6 +687,31 @@ def _leer_anio(valor, por_defecto: int | None = None) -> int | None:
     return n if ANIO_MIN <= n <= ANIO_MAX else None
 
 
+def _reparto_por_anio(cursadas):
+    """Reparte cursadas en (visibles_por_filtro, cuántas hay de cada una).
+
+    Lo comparten el espacio del estudiante y el listado del equipo docente: qué cuenta
+    como «anterior» tiene que querer decir lo mismo en las dos pantallas. La del año que
+    viene entra en «actual»: lo que se guarda para después es lo viejo, no lo que todavía
+    no empezó.
+    """
+    este = anio_actual()
+    actual = [c for c in cursadas if c["anio"] >= este]
+    anteriores = [c for c in cursadas if c["anio"] < este]
+    return ({"actual": actual, "anteriores": anteriores, "todas": list(cursadas)},
+            {"actual": len(actual), "anteriores": len(anteriores), "todas": len(cursadas)})
+
+
+def _filtro_elegido(db, user, ver: str) -> str:
+    """El filtro que corresponde mostrar, guardando el que la persona acaba de elegir."""
+    guardado = user["panel_filtro"] if "panel_filtro" in user.keys() else ""
+    if ver in FILTROS_PANEL:
+        if ver != guardado:
+            db.execute("UPDATE users SET panel_filtro = ? WHERE id = ?", (ver, user["id"]))
+        return ver
+    return guardado if guardado in FILTROS_PANEL else FILTRO_POR_DEFECTO
+
+
 # Los filtros del espacio del estudiante. Se guarda el modo elegido y nunca un año
 # concreto: en 2027, «el año en curso» tiene que seguir queriendo decir 2027.
 FILTROS_PANEL = ("actual", "anteriores", "todas")
@@ -702,29 +727,15 @@ def panel_root(request: Request, ver: str = ""):
         cursos = student_editions(db, user["id"])
         if len(cursos) == 1:
             return redirect(f"/panel/{cursos[0]['id']}")
-        # Lo que eligió recién manda; si no eligió nada, lo último que había dejado puesto.
-        guardado = user["panel_filtro"] if "panel_filtro" in user.keys() else ""
-        filtro = (ver if ver in FILTROS_PANEL
-                  else guardado if guardado in FILTROS_PANEL else FILTRO_POR_DEFECTO)
-        if ver in FILTROS_PANEL and ver != guardado:
-            db.execute("UPDATE users SET panel_filtro = ? WHERE id = ?", (ver, user["id"]))
+        filtro = _filtro_elegido(db, user, ver)
         cfg = get_config(db)
+        por_filtro, cuantas = _reparto_por_anio(cursos)
         items = [{
             "c": c,
             "n_instancias": len(edition_assignments(db, c["id"], only_active=True)),
-            "anio": c["anio"],
-        } for c in cursos]
-
-    este = anio_actual()
-    # La del año que viene entra en «actual» y no en «anteriores»: lo que se guarda para
-    # después es lo viejo, no lo que todavía no empezó.
-    items.sort(key=lambda i: (-i["anio"], i["c"]["materia"]))
-    del_anio = [i for i in items if i["anio"] >= este]
-    anteriores = [i for i in items if i["anio"] < este]
-    cuantas = {"actual": len(del_anio), "anteriores": len(anteriores), "todas": len(items)}
-    visibles = {"actual": del_anio, "anteriores": anteriores, "todas": items}[filtro]
-    return render(request, "panel_cursos.html", items=visibles, cfg=cfg,
-                  filtro=filtro, cuantas=cuantas, anio=este)
+        } for c in por_filtro[filtro]]
+    return render(request, "panel_cursos.html", items=items, cfg=cfg,
+                  filtro=filtro, cuantas=cuantas, anio=anio_actual())
 
 
 @app.get("/panel/{cid}", response_class=HTMLResponse)
@@ -1592,12 +1603,16 @@ async def admin_final_post(request: Request, sid: int):
 # ---------------------------------------------------------------- staff: cursos e instancias
 
 @app.get("/admin/cursos", response_class=HTMLResponse)
-def admin_cursos(request: Request):
+def admin_cursos(request: Request, ver: str = ""):
     user, resp = _require(request, *STAFF)
     if resp:
         return resp
     with get_db() as db:
-        cursos = staff_editions(db, user)
+        filtro = _filtro_elegido(db, user, ver)
+        # Se filtra antes de contar: cada cursada cuesta tres consultas, y no tiene
+        # sentido pagarlas por las que no se van a mostrar.
+        por_filtro, cuantas = _reparto_por_anio(staff_editions(db, user))
+        cursos = por_filtro[filtro]
         rows = []
         for c in cursos:
             docentes = edition_teachers(db, c["id"])
@@ -1621,7 +1636,8 @@ def admin_cursos(request: Request):
         grupos[-1]["cursadas"].append(r)
     with get_db() as db:
         aviso = _consejo(db, user, "cursos")
-    return render(request, "admin_cursos.html", grupos=grupos, rows=rows, aviso=aviso)
+    return render(request, "admin_cursos.html", grupos=grupos, rows=rows, aviso=aviso,
+                  filtro=filtro, cuantas=cuantas, anio=anio_actual())
 
 
 @app.get("/admin/materias", response_class=HTMLResponse)
@@ -1815,10 +1831,12 @@ async def admin_cursos_crear(request: Request):
                 return redirect(volver, err="Esa materia no existe.")
 
         if db.execute(
-            "SELECT 1 FROM course_editions WHERE course_id = ? AND etiqueta = ?", (cid_materia, etiqueta)
+            "SELECT 1 FROM course_editions WHERE course_id = ? AND anio = ? AND etiqueta = ?",
+            (cid_materia, anio, etiqueta),
         ).fetchone():
             materia = get_course(db, cid_materia)
-            return redirect(volver, err=f"«{materia['name']}» ya tiene una cursada «{etiqueta}».")
+            return redirect(volver,
+                            err=f"«{materia['name']}» ya tiene una cursada «{etiqueta}» en {anio}.")
 
         eid = db.execute(
             "INSERT INTO course_editions (course_id, anio, etiqueta, active, created_at,"
@@ -1909,25 +1927,24 @@ async def admin_curso_post(request: Request, cid: int):
         # Etiqueta, fechas, estado y equipo son atributos de la cursada, y quien la tiene
         # asignada los administra. Eliminarla no: eso queda arriba, y ya salió por su rama.
         if True:
-            etiqueta = (form.get("etiqueta") or "").strip()
-            if etiqueta and etiqueta != course["etiqueta"]:
-                if db.execute(
-                    "SELECT 1 FROM course_editions WHERE course_id = ? AND etiqueta = ? AND id != ?",
-                    (course["course_id"], etiqueta, cid),
-                ).fetchone():
-                    return redirect(
-                        f"/admin/cursos/{cid}",
-                        err=f"«{course['materia']}» ya tiene una cursada «{etiqueta}».",
-                    )
-                db.execute("UPDATE course_editions SET etiqueta = ? WHERE id = ?", (etiqueta, cid))
+            etiqueta = (form.get("etiqueta") or "").strip() or course["etiqueta"]
             anio = _leer_anio(form.get("anio"), course["anio"])
             if anio is None:
                 return redirect(f"/admin/cursos/{cid}",
                                 err=f"El año de la cursada tiene que estar entre {ANIO_MIN} y {ANIO_MAX}.")
+            # Se miran juntos: lo que no se puede repetir es materia + año + etiqueta.
+            if (anio, etiqueta) != (course["anio"], course["etiqueta"]) and db.execute(
+                "SELECT 1 FROM course_editions WHERE course_id = ? AND anio = ? AND etiqueta = ?"
+                " AND id != ?", (course["course_id"], anio, etiqueta, cid),
+            ).fetchone():
+                return redirect(
+                    f"/admin/cursos/{cid}",
+                    err=f"«{course['materia']}» ya tiene una cursada «{etiqueta}» en {anio}.",
+                )
             db.execute(
-                "UPDATE course_editions SET anio = ?, active = ?, fecha_inicio = ?, fecha_fin = ?"
-                " WHERE id = ?",
-                (anio, 1 if form.get("active") == "1" else 0,
+                "UPDATE course_editions SET anio = ?, etiqueta = ?, active = ?, fecha_inicio = ?,"
+                " fecha_fin = ? WHERE id = ?",
+                (anio, etiqueta, 1 if form.get("active") == "1" else 0,
                  (form.get("fecha_inicio") or "").strip(), (form.get("fecha_fin") or "").strip(), cid),
             )
             elegidos = {int(x) for x in form.getlist("docentes")}
@@ -2229,12 +2246,12 @@ async def admin_edicion_duplicar_post(request: Request, cid: int):
             return redirect(f"/admin/cursos/{cid}/duplicar",
                             err=f"El año de la cursada tiene que estar entre {ANIO_MIN} y {ANIO_MAX}.")
         if db.execute(
-            "SELECT 1 FROM course_editions WHERE course_id = ? AND etiqueta = ?",
-            (origen["course_id"], etiqueta),
+            "SELECT 1 FROM course_editions WHERE course_id = ? AND anio = ? AND etiqueta = ?",
+            (origen["course_id"], anio, etiqueta),
         ).fetchone():
             return redirect(
                 f"/admin/cursos/{cid}/duplicar",
-                err=f"«{origen['materia']}» ya tiene una cursada «{etiqueta}».",
+                err=f"«{origen['materia']}» ya tiene una cursada «{etiqueta}» en {anio}.",
             )
 
         nueva = db.execute(
