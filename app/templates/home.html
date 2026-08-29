@@ -38,7 +38,7 @@
       <tr>
         <td>{{ p.alumno }}</td>
         <td>{{ p.instancia }}</td>
-        <td class="muted small">{{ p.materia }} {{ p.etiqueta }}</td>
+        <td class="muted small">{{ p.materia }} {{ p.periodo }}</td>
         <td class="muted small">{{ p.created_at|fecha }}
           {% if p.error %}<span class="pill pill-mini pill-warn" title="{{ p.error }}">sin propuesta de la IA</span>{% endif %}
         </td>
@@ -59,7 +59,7 @@
     {% for a in porvencer %}
       <tr>
         <td>{{ a.name }}</td>
-        <td class="muted small">{{ a.materia }} {{ a.etiqueta }}</td>
+        <td class="muted small">{{ a.materia }} {{ a.periodo }}</td>
         <td>{{ a.fecha_cierre|fecha_corta }}</td>
         <td>{{ a.entregaron }} de {{ a.inscriptos }}</td>
         <td><a class="btn small" href="{{ base }}/admin/instancias/{{ a.id }}">Ficha</a></td>
@@ -84,7 +84,7 @@
     {% for x in cursadas %}
       <a class="tarjeta" href="{{ base }}/admin/cursos/{{ x.c.id }}">
         <strong>{{ x.c.materia }}</strong>
-        <span class="pill pill-mini pill-edicion">{{ x.c.etiqueta }}</span>
+        <span class="pill pill-mini pill-edicion">{{ x.c.periodo }}</span>
         <span class="muted small">{{ x.n_inst }} instancia{{ 's' if x.n_inst != 1 }} ·
           {{ x.n_est }} estudiante{{ 's' if x.n_est != 1 }}</span>
         {% if x.pendientes %}<span class="pill pill-mini pill-warn">{{ x.pendientes }} por corregir</span>{% endif %}

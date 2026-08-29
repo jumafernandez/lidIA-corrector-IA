@@ -35,11 +35,11 @@
     </label>
     <label style="font-weight: 400">
       <input type="radio" name="tipo" value="escrito" {{ 'checked' if tipo_actual == 'escrito' }} {{ 'disabled' if bloqueado }} style="width: auto; margin-right: 8px">
-      <strong>Examen escrito</strong>{{ info("Se corrige contra respuestas esperadas. Las prácticas orientan sin revelar la respuesta; la corrección final la revela y propone calificación.") }}
+      <strong>Examen escrito</strong>{{ info("Parcial o final escrito. Se corrige contra las respuestas esperadas, con puntaje por pregunta y calificación calculada. Se entrega una sola vez: esa entrega es la definitiva.") }}
     </label>
     <label style="font-weight: 400">
       <input type="radio" name="tipo" value="choice" {{ 'checked' if tipo_actual == 'choice' }} {{ 'disabled' if bloqueado }} style="width: auto; margin-right: 8px">
-      <strong>Multiple choice</strong>{{ info("Clave de corrección y una única oportunidad de entrega, con calificación sugerida y firma docente.") }}
+      <strong>Multiple choice</strong>{{ info("Clave de corrección y una única entrega, que es la definitiva. La calificación la calcula el código comparando con la clave, y la firma el equipo docente.") }}
     </label>
 
     <p style="margin: 18px 0 4px"><strong>Circuito de corrección</strong></p>
@@ -47,14 +47,17 @@
       <input type="checkbox" name="requiere_revision" value="1" id="chk-revision"
              {{ 'checked' if (assignment.requiere_revision if editando else true) }} style="width: auto; margin-right: 8px">
       Requiere revisión humana final
-      {{ info("Marcado, la instancia tiene una entrega definitiva que una persona revisa, firma y califica:
-      es un intento más además de las devoluciones previas. Sin marcar es solo formativa —se practica con Lidia y
-      nadie firma nada—, útil cuando la validación la hacés por fuera del sistema.") }}
+      {{ info("Lo que decide es quién cierra la entrega definitiva, no si la hay: definitiva hay siempre.
+
+      Marcado, la corrección va a la cola del equipo docente y el estudiantado no la ve hasta que
+      alguien la revisa, la firma y confirma la calificación. Sin marcar, Lidia la cierra sola y la
+      corrección queda a la vista apenas se entrega.") }}
     </label>
     <div class="flash warn sangria" id="aviso-sin-revision" hidden>
-      Esta instancia queda <strong>solo formativa</strong>: no va a tener entrega definitiva, nadie firma ni
-      califica, y la devolución de Lidia es lo último que ve el estudiante. Tiene sentido cuando la
-      validación la hacés por fuera del sistema.
+      Nadie va a firmar esta instancia: la entrega definitiva se cierra sola, con la corrección y la
+      calificación de Lidia a la vista <strong>apenas el estudiantado entrega</strong>. Tiene sentido
+      cuando la validación la hacés por fuera del sistema, y no cuando lo corregido son respuestas
+      que todavía están rindiendo otras personas.
     </div>
 
     <label style="font-weight: 400">
@@ -111,16 +114,23 @@
         </select>
       </label>
       <div></div>
-      <label>Abre el
-        {{ info("Antes de esta fecha la instancia se ve pero no admite entregas. Dejala vacía para que
-        esté disponible desde que la actives.") }}
-        <input type="date" name="fecha_apertura" value="{{ assignment.fecha_apertura if editando else '' }}">
+      <label>Abre
+        {{ info("Antes de este momento la instancia se ve pero no admite entregas. Dejalo vacío para que
+        esté disponible desde que la actives.
+
+        La hora es opcional: si la dejás en 00:00 se comporta como el día entero, que es lo que
+        corresponde a una entrega domiciliaria. Para un parcial presencial de dos horas, poné la hora
+        exacta de comienzo.") }}
+        <input type="datetime-local" name="fecha_apertura" value="{{ assignment.fecha_apertura if editando else '' }}">
       </label>
-      <label>Cierra el
-        {{ info("Último día para entregar, inclusive. Pasada esa fecha no se admiten entregas nuevas —ni
-        entregas mejorables ni definitivas— y el estudiantado sigue viendo lo que ya entregó. Dejala vacía si no hay
-        plazo.") }}
-        <input type="date" name="fecha_cierre" value="{{ assignment.fecha_cierre if editando else '' }}">
+      <label>Cierra
+        {{ info("Momento límite para entregar. Pasado eso no se admiten entregas nuevas —ni mejorables ni
+        definitivas— y el estudiantado sigue viendo lo que ya entregó. Dejalo vacío si no hay plazo.
+
+        Sin hora se toma el final del día, así que una fecha suelta cierra a las 23:59 de ese día,
+        inclusive. Con hora, cierra exactamente ahí: es lo que hace falta para un parcial que dura dos
+        horas.") }}
+        <input type="datetime-local" name="fecha_cierre" value="{{ assignment.fecha_cierre if editando else '' }}">
       </label>
     </div>
 

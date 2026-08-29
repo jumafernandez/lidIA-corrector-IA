@@ -2,6 +2,7 @@
 {% from "_ui.html" import info %}
 {% block title %}Revisar entrega definitiva{% endblock %}
 {% from "_niveles.html" import niveles as tira_niveles %}
+{% from "_nota.html" import detalle_nota as bloque_nota %}
 {% block content %}
 <p class="crumbs"><a href="{{ base }}/admin/entregas">← Entregas</a></p>
 <h1>Entrega definitiva de {{ owner.full_name }}</h1>
@@ -40,6 +41,8 @@ y no evaluó la coherencia con lo propuesto: ese criterio lo tenés que mirar vo
   <pre class="crudo">{{ sub.propuesta_text }}</pre>
 </details>
 {% endif %}
+{{ bloque_nota(sub.nota, detalle_nota, false) }}
+
 {{ tira_niveles(niveles) }}
 
 <p class="muted">{{ course.name }} · {{ assignment.name }} · {{ sub.created_at|fecha }} hs · {{ sub.original_filename or 'texto pegado' }} · {{ sub.text_chars }} caracteres

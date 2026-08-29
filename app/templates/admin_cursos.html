@@ -23,7 +23,7 @@ Los estudiantes, los docentes y las instancias son propios de cada cursada.</p>
       <tr class="grupo"><th colspan="7">{{ g.materia }}</th></tr>
       {% for r in g.cursadas %}
       <tr>
-        <td><a href="{{ base }}/admin/cursos/{{ r.c.id }}"><b>{{ r.c.etiqueta }}</b></a></td>
+        <td><a href="{{ base }}/admin/cursos/{{ r.c.id }}"><b>{{ r.c.periodo }}</b></a></td>
         <td class="muted small">{% for d in r.docentes %}{{ d.full_name }}{{ ' · ' if not loop.last }}{% else %}—{% endfor %}</td>
         <td>{{ r.n_inst }}</td>
         <td>{{ r.n_est }}</td>

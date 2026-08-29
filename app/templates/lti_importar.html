@@ -2,13 +2,13 @@
 {% from "_ui.html" import info %}
 {% block title %}Traer del campus · {{ course.materia }}{% endblock %}
 {% block content %}
-<p class="crumbs"><a href="{{ base }}/admin/cursos/{{ course.id }}">← {{ course.materia }} {{ course.etiqueta }}</a></p>
+<p class="crumbs"><a href="{{ base }}/admin/cursos/{{ course.id }}">← {{ course.nombre }}</a></p>
 <h1>Estudiantes del campus
   {{ info("La lista viene del curso de Moodle con el que esta cursada está vinculada. Se cruza por
   documento: el nombre de usuario del campus tiene que ser el DNI. Los que ya están en LidIA no se
   tocan, solo se inscriben si faltaba.") }}
 </h1>
-<p class="muted">{{ course.materia }} <span class="pill pill-edicion">{{ course.etiqueta }}</span> ·
+<p class="muted">{{ course.materia }} <span class="pill pill-edicion">{{ course.periodo }}</span> ·
   {{ total_campus }} persona{{ 's' if total_campus != 1 }} en el curso del campus</p>
 
 <form method="post" action="{{ base }}/lti/importar/{{ course.id }}">

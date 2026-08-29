@@ -6,7 +6,7 @@
 <div class="hero">
   {{ lidia('greet') }}
   <div>
-    <h1>{{ course.materia }} <span class="pill pill-edicion">{{ course.etiqueta }}</span></h1>
+    <h1>{{ course.materia }} <span class="pill pill-edicion">{{ course.periodo }}</span></h1>
     <p class="muted">Hola, {{ user.full_name|nombre_pila }}. Estas son las instancias de evaluación del curso: entrá a una para presentar tu trabajo y recibir mi devolución.</p>
   </div>
 </div>
@@ -25,8 +25,8 @@
     <h2><a href="{{ base }}/panel/instancia/{{ it.a.id }}">{{ it.a.name }}</a></h2>
     <span>
       {% if it.final %}
-        <span class="pill {{ 'pill-ok' if it.final.status == 'aprobada' else 'pill-warn' }}">{{ 'Corregida' if it.a.tipo == 'choice' else 'Final' }} {{ 'aprobada' if it.final.status == 'aprobada' else 'en revisión' }}</span>
-      {% elif it.a.tipo == 'choice' %}
+        <span class="pill {{ 'pill-ok' if it.final.status == 'aprobada' else 'pill-warn' }}">{{ 'Corregida' if not it.a.max_practicas else 'Final' }} {{ 'aprobada' if it.final.status == 'aprobada' else 'en revisión' }}</span>
+      {% elif not it.a.max_practicas %}
         <span class="pill">Entrega única</span>
       {% else %}
         <span class="pill {{ 'pill-warn' if it.restantes == 0 else 'pill-ok' }}">{{ it.restantes }} de {{ it.a.max_practicas }} devoluciones</span>
@@ -36,7 +36,7 @@
   <p class="muted">
     {% if it.final %}
       Ya presentaste tu entrega.
-    {% elif it.a.tipo == 'choice' %}
+    {% elif not it.a.max_practicas %}
       Tenés una única oportunidad de entrega.
     {% elif it.restantes == 0 %}
       Usaste todas las devoluciones; queda presentar la definitiva.

@@ -48,7 +48,7 @@ def _app_url(ruta: str = "") -> str:
 def _cursada(course) -> str:
     """«Introducción a la Inteligencia Artificial 2026», tomado de los datos reales."""
     try:
-        return f"{course['materia']} {course['etiqueta']}".strip()
+        return (course['nombre'] or '').strip()
     except (KeyError, TypeError, IndexError):
         return ""
 

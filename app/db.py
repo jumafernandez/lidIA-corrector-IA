@@ -1,5 +1,6 @@
 """Base de datos SQLite: esquema, conexión y configuración."""
 import os
+import re
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -37,6 +38,9 @@ CREATE TABLE IF NOT EXISTS courses (
 CREATE TABLE IF NOT EXISTS course_editions (
     id INTEGER PRIMARY KEY,
     course_id INTEGER NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+    -- El año va aparte de la etiqueta: la etiqueta es texto libre («2C», «Verano»,
+    -- «Comisión A») y no hay forma confiable de leerle un año adentro.
+    anio INTEGER NOT NULL DEFAULT 0,
     etiqueta TEXT NOT NULL,
     active INTEGER NOT NULL DEFAULT 1,     -- inactiva = cursada cerrada (solo lectura)
     created_at TEXT NOT NULL,
@@ -198,6 +202,21 @@ def get_db():
         conn.commit()
     finally:
         conn.close()
+
+
+def _anio_inicial(fila) -> int:
+    """El año de una cursada que se creó antes de que el año existiera como campo.
+
+    Por orden de confianza: la fecha de inicio si está cargada, el año que aparezca en
+    la etiqueta —que hasta acá era donde se escribía—, y por último el año en que se dio
+    de alta la cursada, que es el que menos falla de los que quedan.
+    """
+    for texto in ((fila["fecha_inicio"] or "").strip(), (fila["etiqueta"] or "").strip(),
+                  (fila["created_at"] or "").strip()):
+        m = ANIO_EN_TEXTO.search(texto)
+        if m:
+            return int(m.group(0))
+    return anio_actual()
 
 
 def init_db():
@@ -392,6 +411,56 @@ def init_db():
             db.execute("ALTER TABLE submissions ADD COLUMN archivo_bytes INTEGER NOT NULL DEFAULT 0")
             db.execute("ALTER TABLE submissions ADD COLUMN archivo_sha256 TEXT DEFAULT ''")
 
+        cols = {r["name"] for r in db.execute("PRAGMA table_info(submissions)")}
+        if "detalle_nota" not in cols:
+            # 021 — De dónde salió la calificación: los niveles por criterio en un trabajo
+            # abierto, los puntos por pregunta en un examen. Sin esto la nota es un número
+            # y no se puede discutir; con esto se muestra la cuenta.
+            db.execute("ALTER TABLE submissions ADD COLUMN detalle_nota TEXT DEFAULT ''")
+
+        # 022 — Los cupos de una instancia los fija su tipo de evaluación: un examen se
+        # rinde una vez, sin versiones previas ni repreguntas. Las instancias creadas
+        # antes de esa regla habían nacido con los tres intentos del molde del trabajo
+        # abierto, y quedaban ofreciendo versiones que el resto del sistema ya no admite.
+        #
+        # No lleva marca de aplicada a propósito: toca solo las filas fuera del rango
+        # vigente. Si mañana un tipo admite más, esto deja de tocarlas solo, en vez de
+        # volver a pisar lo que el equipo docente configuró.
+        from .circuito import CUPOS
+        for tipo, campos in CUPOS.items():
+            for campo, columna in (("practicas", "max_practicas"), ("preguntas", "max_preguntas")):
+                minimo, maximo, _ = campos[campo]
+                db.execute(
+                    f"UPDATE assignments SET {columna} = max(?, min(?, {columna}))"
+                    f" WHERE tipo = ? AND ({columna} < ? OR {columna} > ?)",
+                    (minimo, maximo, tipo, minimo, maximo),
+                )
+
+        cols = {r["name"] for r in db.execute("PRAGMA table_info(users)")}
+        if "panel_filtro" not in cols:
+            # 023 — Qué filtro dejó puesto cada persona en su espacio: el año en curso,
+            # los anteriores o todas. Se guarda el modo elegido y nunca un año concreto:
+            # guardar «2026» haría que en 2027 la persona entrara mirando el año pasado.
+            # Va por persona y no en la sesión porque tener que volver a elegirlo en cada
+            # ingreso convierte un filtro en una molestia. Vacío = todavía no eligió.
+            db.execute("ALTER TABLE users ADD COLUMN panel_filtro TEXT NOT NULL DEFAULT ''")
+
+        cols = {r["name"] for r in db.execute("PRAGMA table_info(course_editions)")}
+        if "anio" not in cols:
+            # 024 — El año de la cursada, como dato propio. Hasta acá el año vivía dentro
+            # de la etiqueta, y la etiqueta es texto libre: puede decir «2C», «Verano» o
+            # «Comisión A». Leerle un año adentro funciona hasta que alguien escribe otra
+            # cosa. Con el año aparte, la etiqueta queda libre para lo que realmente es.
+            db.execute("ALTER TABLE course_editions ADD COLUMN anio INTEGER NOT NULL DEFAULT 0")
+
+        # El relleno vive fuera del `if`: año 0 es «sin clasificar», venga de la migración
+        # o de una carga que lo dejó vacío. Normalmente no hay ninguna y esto no hace nada.
+        for fila in db.execute(
+            "SELECT id, etiqueta, fecha_inicio, created_at FROM course_editions WHERE anio = 0"
+        ).fetchall():
+            db.execute("UPDATE course_editions SET anio = ? WHERE id = ?",
+                       (_anio_inicial(fila), fila["id"]))
+
         for key, value in DEFAULT_CONFIG.items():
             db.execute("INSERT OR IGNORE INTO config (key, value) VALUES (?, ?)", (key, value))
 
@@ -448,10 +517,25 @@ def all_courses(db, only_active: bool = False):
 # `nombre` es el nombre completo que se muestra en pantalla («Álgebra 2026 2C»);
 # se arma en SQL para que las plantillas no tengan que componerlo en cada lugar.
 
-EDICION_SELECT = """
+def periodo_sql(alias: str = "ed") -> str:
+    """Cómo se lee un período, listo para pegar en un SELECT que use ese alias.
+
+    El año, y la etiqueta al lado solo cuando dice algo más que el año. Sin esto, una
+    cursada con etiqueta «2026» y año 2026 se leería «2026 2026»: mientras la etiqueta
+    siga siendo el año en las cursadas viejas, el nombre tiene que aguantarlo.
+    """
+    return (f"CASE WHEN TRIM({alias}.etiqueta) IN ('', CAST({alias}.anio AS TEXT))"
+            f" THEN CAST({alias}.anio AS TEXT)"
+            f" ELSE CAST({alias}.anio AS TEXT) || ' ' || {alias}.etiqueta END")
+
+
+_PERIODO = periodo_sql("ed")
+
+EDICION_SELECT = f"""
 SELECT ed.*, c.name AS materia, c.active AS materia_active,
-       c.name || ' ' || ed.etiqueta AS nombre,
-       c.name || ' ' || ed.etiqueta AS name
+       {_PERIODO} AS periodo,
+       c.name || ' ' || {_PERIODO} AS nombre,
+       c.name || ' ' || {_PERIODO} AS name
   FROM course_editions ed JOIN courses c ON c.id = ed.course_id
 """
 
@@ -463,7 +547,7 @@ def get_edition(db, edition_id: int):
 def course_editions(db, course_id: int):
     """Ediciones de una materia, de la más reciente a la más vieja."""
     return db.execute(
-        EDICION_SELECT + " WHERE ed.course_id = ? ORDER BY ed.created_at DESC, ed.id DESC",
+        EDICION_SELECT + " WHERE ed.course_id = ? ORDER BY ed.anio DESC, ed.id DESC",
         (course_id,),
     ).fetchall()
 
@@ -479,7 +563,7 @@ def teacher_edition_ids(db, user) -> list | None:
 def staff_editions(db, user):
     """Ediciones visibles para un usuario staff, agrupables por materia."""
     ids = teacher_edition_ids(db, user)
-    orden = " ORDER BY c.name, ed.created_at DESC, ed.etiqueta"
+    orden = " ORDER BY c.name, ed.anio DESC, ed.etiqueta"
     if ids is None:
         return db.execute(EDICION_SELECT + orden).fetchall()
     if not ids:
@@ -532,21 +616,39 @@ def ventana_entrega(assignment) -> tuple:
     """(abierta, motivo). Las fechas vacías significan sin restricción."""
     if "fecha_apertura" not in assignment.keys():
         return True, ""
-    hoy = datetime.now(AR_TZ).date().isoformat()
-    desde = (assignment["fecha_apertura"] or "").strip()
-    hasta = (assignment["fecha_cierre"] or "").strip()
-    if desde and hoy < desde:
-        return False, f"Esta instancia abre el {fecha_corta(desde)}."
-    if hasta and hoy > hasta:
-        return False, f"El plazo de entrega venció el {fecha_corta(hasta)}."
+    ahora = datetime.now(AR_TZ).strftime("%Y-%m-%dT%H:%M")
+    desde = _momento((assignment["fecha_apertura"] or "").strip(), inicio=True)
+    hasta = _momento((assignment["fecha_cierre"] or "").strip(), inicio=False)
+    if desde and ahora < desde:
+        return False, f"Esta instancia abre el {fecha_corta(assignment['fecha_apertura'])}."
+    if hasta and ahora > hasta:
+        return False, f"El plazo de entrega venció el {fecha_corta(assignment['fecha_cierre'])}."
     return True, ""
 
 
+def _momento(valor: str, inicio: bool) -> str:
+    """Lleva la fecha guardada a «YYYY-MM-DDTHH:MM» para poder comparar como texto.
+
+    Una fecha sin hora significa el día entero: abre a las 00:00 y cierra al terminar el
+    día. Es lo que ya hacía antes de que existiera la hora, así que las instancias
+    cargadas hasta ahora siguen comportándose igual.
+    """
+    if not valor:
+        return ""
+    return valor if "T" in valor else valor + ("T00:00" if inicio else "T23:59")
+
+
 def fecha_corta(iso: str) -> str:
-    """2026-09-08 → 8/9/2026. Si no parsea, se devuelve tal cual."""
+    """2026-09-08 → 8/9/2026; 2026-09-08T14:30 → 8/9/2026 14:30.
+
+    La hora se muestra solo si está: una entrega domiciliaria se anuncia por día y decir
+    «vence el 8/9/2026 a las 00:00» confundiría más de lo que informa.
+    """
     try:
-        a, m, d = iso.split("-")
-        return f"{int(d)}/{int(m)}/{a}"
+        dia, _, hora = (iso or "").partition("T")
+        a, m, d = dia.split("-")
+        salida = f"{int(d)}/{int(m)}/{a}"
+        return f"{salida} {hora[:5]}" if hora else salida
     except (ValueError, AttributeError):
         return iso
 
@@ -599,9 +701,17 @@ def student_editions(db, user_id: int):
     """
     return db.execute(
         EDICION_SELECT + " JOIN enrollments e ON e.edition_id = ed.id "
-        "WHERE e.user_id = ? ORDER BY c.name, ed.created_at DESC",
+        "WHERE e.user_id = ? ORDER BY ed.anio DESC, c.name",
         (user_id,),
     ).fetchall()
+
+
+ANIO_EN_TEXTO = re.compile(r"(19|20)\d{2}")
+
+
+def anio_actual() -> int:
+    """El año en curso en Buenos Aires: es el que se muestra por defecto."""
+    return datetime.now(AR_TZ).year
 
 
 def is_enrolled(db, user_id: int, edition_id: int) -> bool:

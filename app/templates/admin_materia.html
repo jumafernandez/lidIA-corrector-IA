@@ -16,7 +16,7 @@
     <tbody>
     {% for e in cursadas %}
       <tr>
-        <td><a href="{{ base }}/admin/cursos/{{ e.ed.id }}">{{ e.ed.etiqueta }}</a></td>
+        <td><a href="{{ base }}/admin/cursos/{{ e.ed.id }}">{{ e.ed.periodo }}</a></td>
         <td>{{ e.n_inst }}</td>
         <td>{{ e.n_est }}</td>
         <td class="muted small">{% for d in e.docentes %}{{ d.full_name|nombre_pila }}{{ ', ' if not loop.last }}{% else %}—{% endfor %}</td>

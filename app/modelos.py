@@ -136,11 +136,17 @@ def preguntas(texto: str, con_opciones: bool) -> list:
     opción por línea, tal como lo espera el formulario.
     """
     items: list = []
+    siguiente = 1
     for linea in texto.splitlines():
         if not linea.strip():
             continue
         m = NUMERADA.match(linea)
+        # Igual que en las respuestas: una pregunta arranca en el número que corresponde,
+        # así que una enumeración dentro de un enunciado no la parte en dos.
+        if m and int(m.group(1)) != siguiente:
+            m = None
         if m:
+            siguiente += 1
             enunciado = m.group(2).strip()
             puntaje = 1.0
             p = PUNTAJE.search(enunciado)
@@ -176,17 +182,26 @@ def respuestas(texto: str, esperadas: int, como_letra: bool) -> dict:
     `como_letra` es el multiple choice: ahí la respuesta es la letra de la opción correcta
     y cualquier otra cosa es un error de carga, no una respuesta libre.
     """
+    # Una respuesta empieza donde aparece el número que sigue, y no en cualquier renglón
+    # numerado: una respuesta bien escrita puede tener adentro su propia lista —«1. …,
+    # 2. …»— y esos renglones son parte de la respuesta, no el comienzo de otra.
     por_numero: dict = {}
     ultimo = None
+    siguiente = 1
     for linea in texto.splitlines():
         if not linea.strip():
+            if ultimo is not None:
+                por_numero[ultimo] += "\n"
             continue
         m = NUMERADA.match(linea)
-        if m:
-            ultimo = int(m.group(1))
+        if m and int(m.group(1)) == siguiente:
+            ultimo = siguiente
+            siguiente += 1
             por_numero[ultimo] = m.group(2).strip()
         elif ultimo is not None:
-            por_numero[ultimo] = (por_numero[ultimo] + " " + linea.strip()).strip()
+            por_numero[ultimo] = (por_numero[ultimo].rstrip() + "\n" + linea.strip()
+                                  if por_numero[ultimo].endswith("\n")
+                                  else por_numero[ultimo] + " " + linea.strip()).strip()
         else:
             raise FormatoInvalido(
                 "Las respuestas tienen que ir numeradas igual que las preguntas "

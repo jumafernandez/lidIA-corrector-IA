@@ -2,7 +2,7 @@
 {% from "_ui.html" import info %}
 {% block title %}Programa · {{ course.materia }}{% endblock %}
 {% block content %}
-<p class="crumbs"><a href="{{ base }}/admin/cursos/{{ course.id }}">← {{ course.materia }} {{ course.etiqueta }}</a></p>
+<p class="crumbs"><a href="{{ base }}/admin/cursos/{{ course.id }}">← {{ course.nombre }}</a></p>
 <h1>Programa de la cursada
   {{ info("El programa es de esta cursada, no de la materia: cambia entre cursadas, y con él cambian
   los contenidos, la bibliografía y el equipo docente. Lidia lo usa como contexto en todas las
@@ -10,7 +10,7 @@
   que el estudiantado efectivamente cursó, y para no reclamar temas que el curso no cubrió. No es
   criterio de evaluación: el estándar sigue siendo la consigna y la rúbrica de cada instancia.") }}
 </h1>
-<p class="muted">{{ course.materia }} <span class="pill pill-edicion">{{ course.etiqueta }}</span></p>
+<p class="muted">{{ course.materia }} <span class="pill pill-edicion">{{ course.periodo }}</span></p>
 
 <form method="post" action="{{ base }}/admin/cursos/{{ course.id }}/programa" enctype="multipart/form-data">
 <section class="card">

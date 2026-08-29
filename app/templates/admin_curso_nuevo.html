@@ -20,12 +20,18 @@
     </label>
     <label id="materia-nueva" hidden>Nombre de la materia nueva
       <input name="materia_nueva" id="inp-materia" placeholder="Ej.: Aprendizaje Automático">
-      <span class="ayuda">Sin año ni cuatrimestre: eso va en la etiqueta de la cursada.</span>
+      <span class="ayuda">Sin año ni cuatrimestre: eso va en la cursada, no en la materia.</span>
     </label>
-    <label>Etiqueta de la cursada
-      <input name="etiqueta" required placeholder="Ej.: {{ anio }} 2C" value="{{ anio }}">
-      <span class="ayuda">Lo que distingue esta cursada de las otras de la misma materia.</span>
-    </label>
+    <div class="grid2">
+      <label>Año
+        <input type="number" name="anio" required value="{{ anio }}" min="2000" max="2100">
+        <span class="ayuda">Es por lo que se ordenan y se filtran las cursadas.</span>
+      </label>
+      <label>Etiqueta
+        <input name="etiqueta" required placeholder="Ej.: 2C · Verano · Comisión A" value="{{ anio }}">
+        <span class="ayuda">Lo que distingue esta cursada de las otras de la misma materia y el mismo año.</span>
+      </label>
+    </div>
     <div class="grid2">
       <label>Comienza {{ info("Las fechas son informativas: no cierran nada por sí solas, pero sitúan cada entrega dentro de la cursada, que es lo que después permite analizar cuándo entrega el estudiantado. Se pueden completar más tarde.") }}
         <input type="date" name="fecha_inicio">

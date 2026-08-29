@@ -348,7 +348,7 @@ def _destino(request: Request, datos: dict, custom: dict, usuario):
                               "El equipo docente la activa cuando esté lista.", "", 403)
             if not is_enrolled(db, usuario["id"], edicion["id"]):
                 return _error(request, "No estás inscripto en esta cursada",
-                              f"Figurás en LidIA pero no en {edicion['materia']} {edicion['etiqueta']}. "
+                              f"Figurás en LidIA pero no en {edicion['nombre']}. "
                               "Avisale al equipo docente.", "", 403)
             return f"{BASE_PATH}/panel/instancia/{aid}"
     return f"{BASE_PATH}/admin/instancias/{aid}"
@@ -458,7 +458,7 @@ async def deeplink_elegir(request: Request):
         if not quien or not can_access_edition(db, quien, edicion["id"]):
             return _error(
                 request, "No figurás como docente de esa cursada",
-                f"En LidIA no estás asignado a {edicion['materia']} {edicion['etiqueta']}, "
+                f"En LidIA no estás asignado a {edicion['nombre']}, "
                 "así que no podés vincularle una actividad. Pedile a la coordinación que "
                 "te asigne y volvé a intentar.",
                 f"usuario={guardado['user_id']} edicion={edicion['id']}", 403)
@@ -482,7 +482,7 @@ async def deeplink_elegir(request: Request):
 
     recurso = (DeepLinkResource()
                .set_url(_url_publica("/lti/launch"))
-               .set_title(f"{assignment['name']} — {edicion['materia']} {edicion['etiqueta']}")
+               .set_title(f"{assignment['name']} — {edicion['nombre']}")
                .set_custom_params({"lidia_instancia": str(assignment["id"])}))
 
     jwt = enlace.get_response_jwt([recurso])

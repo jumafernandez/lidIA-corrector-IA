@@ -14,9 +14,12 @@
     <label>Materia
       <input value="{{ origen.materia }}" disabled>
     </label>
+    <label>Año
+      <input type="number" name="anio" required autofocus value="{{ anio_sug }}" min="2000" max="2100">
+    </label>
     <label>Etiqueta
-      <input name="etiqueta" required autofocus value="{{ etiqueta_sug }}">
-      <span class="ayuda">Distinta de «{{ origen.etiqueta }}».</span>
+      <input name="etiqueta" required value="{{ etiqueta_sug }}">
+      <span class="ayuda">Distinta de «{{ origen.etiqueta }}» si el año se repite.</span>
     </label>
   </div>
 </section>
@@ -57,7 +60,7 @@
       {{ d.full_name }} <span class="muted small">({{ d.login }}{{ ' · coordinación' if d.role == 'admin' }})</span>
     </label>
   {% endfor %}
-  <p class="muted small">Vienen tildados los de {{ origen.etiqueta }}. Si el equipo cambió, ajustalo: cada cursada tiene el suyo.</p>
+  <p class="muted small">Vienen tildados los de {{ origen.periodo }}. Si el equipo cambió, ajustalo: cada cursada tiene el suyo.</p>
 </section>
 
 <section class="card">

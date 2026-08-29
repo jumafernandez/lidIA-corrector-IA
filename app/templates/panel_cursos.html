@@ -2,7 +2,7 @@
 {% from "_lidia.html" import lidia %}
 {% block title %}Mi espacio{% endblock %}
 {% block content %}
-<div class="hero">
+<div class="saludo">
   {{ lidia('greet') }}
   <div>
     <h1>Hola, {{ user.full_name|nombre_pila }}</h1>
@@ -14,23 +14,40 @@
   <div class="flash warn">{{ cfg.banner_deshabilitado }}</div>
 {% endif %}
 
-{% for it in items %}
-<section class="card {{ 'card-archivada' if not it.c.active }}">
-  <div class="row-between">
-    <h2><a href="{{ base }}/panel/{{ it.c.id }}">{{ it.c.materia }} <span class="pill pill-edicion">{{ it.c.etiqueta }}</span></a></h2>
-    <span>
-      {% if not it.c.active %}<span class="pill pill-mini">Cursada cerrada</span>{% endif %}
-      <span class="pill pill-mini">{{ it.n_instancias }} instancia{{ 's' if it.n_instancias != 1 }} de evaluación</span>
-    </span>
-  </div>
-  <p class="muted">
-    {% if not it.c.active %}Esta cursada terminó: podés consultar tus entregas y devoluciones, pero no presentar nada nuevo.{% endif %}
-    <a href="{{ base }}/panel/{{ it.c.id }}">{{ 'Ver mis entregas →' if not it.c.active else 'Entrar →' }}</a></p>
+{# El filtro recién aparece el año en que empieza a servir: mientras todas las cursadas
+   sean del año en curso, tres botones que no cambian nada son ruido. #}
+{% if cuantas.anteriores %}
+<nav class="filtros" aria-label="Filtrar cursadas">
+  <a class="filtro {{ 'activo' if filtro == 'actual' }}" href="{{ base }}/panel?ver=actual">{{ anio }} <span class="filtro-n">{{ cuantas.actual }}</span></a>
+  <a class="filtro {{ 'activo' if filtro == 'anteriores' }}" href="{{ base }}/panel?ver=anteriores">Anteriores <span class="filtro-n">{{ cuantas.anteriores }}</span></a>
+  <a class="filtro {{ 'activo' if filtro == 'todas' }}" href="{{ base }}/panel?ver=todas">Todas <span class="filtro-n">{{ cuantas.todas }}</span></a>
+</nav>
+{% endif %}
+
+{% if items %}
+{# Las mismas tarjetas del tablero docente: elegir entre cursos es una lista de cosas
+   cortas, y una tarjeta por fila obligaba a barrer la pantalla entera para leer cuatro
+   nombres. #}
+<div class="tarjetas">
+  {% for it in items %}
+  <a class="tarjeta {{ 'tarjeta-archivada' if not it.c.active }}" href="{{ base }}/panel/{{ it.c.id }}">
+    <strong>{{ it.c.materia }}</strong>
+    <span class="pill pill-mini pill-edicion">{{ it.c.periodo }}</span>
+    <span class="muted small">{{ it.n_instancias }} instancia{{ 's' if it.n_instancias != 1 }} de evaluación</span>
+    {% if not it.c.active %}<span class="pill pill-mini">Cursada cerrada · solo consulta</span>{% endif %}
+  </a>
+  {% endfor %}
+</div>
+{% elif cuantas.todas %}
+<section class="card center-note">
+  <h2>No tenés cursadas de {{ anio }}</h2>
+  <p class="muted">Las de años anteriores siguen ahí, con todas tus entregas y devoluciones.
+  <a href="{{ base }}/panel?ver=anteriores">Ver las anteriores</a>.</p>
 </section>
 {% else %}
 <section class="card center-note">
   <h2>Todavía no estás inscripto/a en ningún curso</h2>
   <p class="muted">Escribile al staff de tu carrera para que te asignen a tu curso.</p>
 </section>
-{% endfor %}
+{% endif %}
 {% endblock %}

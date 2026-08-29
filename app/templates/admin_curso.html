@@ -5,7 +5,7 @@
 {% block title %}{{ course.name }}{% endblock %}
 {% block content %}
 <p class="crumbs"><a href="{{ base }}/admin/cursos">← Cursos</a></p>
-<h1>{{ course.materia }} <span class="pill pill-edicion">{{ course.etiqueta }}</span>
+<h1>{{ course.materia }} <span class="pill pill-edicion">{{ course.periodo }}</span>
   <span class="pill pill-mini {{ 'pill-ok' if course.active else 'pill-warn' }}">{{ 'Cursada abierta' if course.active else 'Cursada cerrada' }}</span></h1>
 <p class="muted"><a href="{{ base }}/admin/cursos/{{ course.id }}/duplicar">⧉ Duplicar esta cursada</a>
   {% if puede_crear(user) %}· otras cursadas de {{ course.materia }} en <a href="{{ base }}/admin/materias">Materias</a>{% endif %}</p>
@@ -60,9 +60,14 @@
 <section class="card">
   <h2>Cursada</h2>
   <div class="grid2">
+    <label>Año
+      <input type="number" name="anio" value="{{ course.anio }}" required min="2000" max="2100">
+      <span class="ayuda">Es por lo que se ordenan y se filtran las cursadas.</span>
+    </label>
     <label>Etiqueta
       <input name="etiqueta" value="{{ course.etiqueta }}" required>
-      <span class="ayuda">La materia se renombra desde <a href="{{ base }}/admin/materias">Materias</a>.</span>
+      <span class="ayuda">Qué la distingue de otra del mismo año: «2C», «Verano», «Comisión A».
+      La materia se renombra desde <a href="{{ base }}/admin/materias">Materias</a>.</span>
     </label>
     <label style="font-weight: 400; margin-top: 34px">
       <input type="checkbox" name="active" value="1" {{ 'checked' if course.active }} style="width: auto; margin-right: 8px">

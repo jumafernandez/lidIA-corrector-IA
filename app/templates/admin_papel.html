@@ -8,7 +8,7 @@
   tomó en el aula. Sacás las fotos, Lidia las transcribe y vos verificás la lectura antes de registrarla.
   La entrega queda a nombre del estudiante, con constancia de que la subiste vos.") }}
 </h1>
-<p class="muted">{{ course.materia }} {{ course.etiqueta }} · {{ assignment.name }}</p>
+<p class="muted">{{ course.nombre }} · {{ assignment.name }}</p>
 
 <form method="post" action="{{ base }}/admin/instancias/{{ assignment.id }}/papel"
       enctype="multipart/form-data" data-busy="1" data-lidia="Lidia está leyendo el examen">

@@ -20,7 +20,8 @@ from fastapi.templating import Jinja2Templates
 
 from . import (archivos, auth, choice as choice_mod, circuito as circ, claves, intentos,
                investigacion, lti, lti_storage, modelos, repos)
-from .db import (all_courses, ventana_entrega, fecha_corta, assignment_cfg, assignment_items, can_access_edition,
+from .db import (all_courses, anio_actual, periodo_sql, ventana_entrega, fecha_corta, assignment_cfg,
+                 assignment_items, can_access_edition,
                  inscripcion_habilitada,
                  grupo_de, grupos_de_instancia, miembros_de,
                  course_editions, edition_assignments, edition_teachers, enroll, final_activa,
@@ -34,6 +35,7 @@ from .extract import (ExtractionError, contar_imagenes, extract_text,
                       paginas_de_pdf, TOPE_PAGINAS)
 from .llm import (LLMError, answer_question, criterios_de, explicar_errores,
                   generate_feedback, leer_respuestas_faltantes, model_info,
+                  nota_de_niveles, nota_de_puntajes, puntuar_examen,
                   revisar_integridad, separar_niveles, split_items, transcribe_images)
 
 BASE_DIR = os.path.dirname(__file__)
@@ -244,6 +246,17 @@ def _corregir_choice(cfg, nombre, work_text, marcadas=None):
     return "\n\n".join(partes), modelo or "deterministico", tele, resultado["nota"]
 
 
+def _detalle_nota(sub) -> dict:
+    """El desglose guardado de la calificación, listo para mostrar."""
+    crudo = sub["detalle_nota"] if "detalle_nota" in sub.keys() else ""
+    if not (crudo or "").strip():
+        return {}
+    try:
+        return json.loads(crudo)
+    except (ValueError, TypeError):
+        return {}
+
+
 def _niveles(sub) -> list:
     """Los niveles por criterio guardados con la entrega, listos para mostrar."""
     crudo = sub["niveles"] if "niveles" in sub.keys() else ""
@@ -379,7 +392,7 @@ def home(request: Request):
 
         pendientes = db.execute(
             f"""SELECT s.id, s.created_at, u.full_name AS alumno, a.name AS instancia,
-                       c.name AS materia, ed.etiqueta, s.error
+                       c.name AS materia, {periodo_sql('ed')} AS periodo, s.error
                   FROM submissions s
                   JOIN users u ON u.id = s.user_id
                   JOIN assignments a ON a.id = s.assignment_id
@@ -389,7 +402,7 @@ def home(request: Request):
                  ORDER BY s.created_at""", args).fetchall()
 
         porvencer = db.execute(
-            f"""SELECT a.id, a.name, a.fecha_cierre, c.name AS materia, ed.etiqueta,
+            f"""SELECT a.id, a.name, a.fecha_cierre, c.name AS materia, {periodo_sql('ed')} AS periodo,
                        (SELECT COUNT(*) FROM enrollments e WHERE e.edition_id = ed.id) AS inscriptos,
                        (SELECT COUNT(DISTINCT s.user_id) FROM submissions s
                          WHERE s.assignment_id = a.id AND s.kind = 'final') AS entregaron
@@ -409,7 +422,7 @@ def home(request: Request):
                 "n_inst": db.execute("SELECT COUNT(*) n FROM assignments WHERE edition_id = ?",
                                      (c["id"],)).fetchone()["n"],
                 "pendientes": sum(1 for p in pendientes
-                                  if p["materia"] == c["materia"] and p["etiqueta"] == c["etiqueta"]),
+                                  if p["materia"] == c["materia"] and p["periodo"] == c["periodo"]),
             })
 
         # Cosas que degradan la corrección sin que nadie se entere. Solo las ve quien puede
@@ -657,8 +670,31 @@ def avatar(request: Request, uid: int):
 
 # ---------------------------------------------------------------- estudiante
 
+# Una cursada tiene que caer en un año plausible: el campo viene precargado con el año
+# en curso, así que un valor fuera de rango es un dedazo, no una intención.
+ANIO_MIN, ANIO_MAX = 2000, 2100
+
+
+def _leer_anio(valor, por_defecto: int | None = None) -> int | None:
+    """El año que vino del formulario, o None si no es un año. Vacío = el por defecto."""
+    texto = (valor or "").strip()
+    if not texto:
+        return por_defecto if por_defecto is not None else anio_actual()
+    try:
+        n = int(texto)
+    except ValueError:
+        return None
+    return n if ANIO_MIN <= n <= ANIO_MAX else None
+
+
+# Los filtros del espacio del estudiante. Se guarda el modo elegido y nunca un año
+# concreto: en 2027, «el año en curso» tiene que seguir queriendo decir 2027.
+FILTROS_PANEL = ("actual", "anteriores", "todas")
+FILTRO_POR_DEFECTO = "actual"
+
+
 @app.get("/panel", response_class=HTMLResponse)
-def panel_root(request: Request):
+def panel_root(request: Request, ver: str = ""):
     user, resp = _require(request, "student")
     if resp:
         return resp
@@ -666,12 +702,29 @@ def panel_root(request: Request):
         cursos = student_editions(db, user["id"])
         if len(cursos) == 1:
             return redirect(f"/panel/{cursos[0]['id']}")
+        # Lo que eligió recién manda; si no eligió nada, lo último que había dejado puesto.
+        guardado = user["panel_filtro"] if "panel_filtro" in user.keys() else ""
+        filtro = (ver if ver in FILTROS_PANEL
+                  else guardado if guardado in FILTROS_PANEL else FILTRO_POR_DEFECTO)
+        if ver in FILTROS_PANEL and ver != guardado:
+            db.execute("UPDATE users SET panel_filtro = ? WHERE id = ?", (ver, user["id"]))
         cfg = get_config(db)
         items = [{
             "c": c,
             "n_instancias": len(edition_assignments(db, c["id"], only_active=True)),
+            "anio": c["anio"],
         } for c in cursos]
-    return render(request, "panel_cursos.html", items=items, cfg=cfg)
+
+    este = anio_actual()
+    # La del año que viene entra en «actual» y no en «anteriores»: lo que se guarda para
+    # después es lo viejo, no lo que todavía no empezó.
+    items.sort(key=lambda i: (-i["anio"], i["c"]["materia"]))
+    del_anio = [i for i in items if i["anio"] >= este]
+    anteriores = [i for i in items if i["anio"] < este]
+    cuantas = {"actual": len(del_anio), "anteriores": len(anteriores), "todas": len(items)}
+    visibles = {"actual": del_anio, "anteriores": anteriores, "todas": items}[filtro]
+    return render(request, "panel_cursos.html", items=visibles, cfg=cfg,
+                  filtro=filtro, cuantas=cuantas, anio=este)
 
 
 @app.get("/panel/{cid}", response_class=HTMLResponse)
@@ -873,13 +926,16 @@ async def entregar(
                 "Tu inscripción a esta cursada está deshabilitada, así que no podés presentar "
                 "nada nuevo acá. Hablá con el equipo docente de la cursada."))
         cfg = assignment_cfg(db, course, assignment)
-        if kind == "final" and not assignment["requiere_revision"]:
-            return redirect(back, err="Esta instancia es solo formativa: no tiene entrega definitiva.")
+        # La definitiva se sube directo solo cuando la instancia no admite versiones
+        # previas. Si las admite, nace de marcar una que ya recibió devolución: así lo
+        # que se firma es exactamente lo que Lidia evaluó, y no una segunda carga.
+        if kind == "final" and assignment["max_practicas"]:
+            return redirect(back, err="La entrega definitiva se marca desde una versión ya corregida.")
         abierta, motivo = ventana_entrega(assignment)
         if not abierta:
             return redirect(back, err=motivo)
-        if kind == "practica" and assignment["tipo"] == "choice":
-            return redirect(back, err="Esta evaluación tiene una única oportunidad de entrega.")
+        if kind == "practica" and not assignment["max_practicas"]:
+            return redirect(back, err="Esta evaluación se entrega una sola vez: no admite versiones previas.")
         if kind == "practica" and practicas_usadas(db, user["id"], assignment_id) >= assignment["max_practicas"]:
             return redirect(back, err="Ya usaste todas tus devoluciones. Podés presentar la entrega definitiva.")
         if kind == "final" and final_activa(db, user["id"], assignment_id):
@@ -1018,6 +1074,14 @@ async def entregar(
                 pass
         sid = cur.lastrowid
     if kind == "final":
+        # Es la única entrega que admite la instancia, así que el circuito se cierra acá
+        # mismo: se calcula la calificación y, si nadie tiene que firmarla, queda firme.
+        firma_sola = not assignment["requiere_revision"]
+        nota = _asentar_nota(sid, cfg, firma_sola)
+        if firma_sola:
+            cuanto = f" Tu calificación es {_num_nota(nota)}." if nota is not None else ""
+            return redirect(f"/entrega/{sid}", msg=(
+                "Entrega registrada." + cuanto + " Esta instancia no lleva revisión docente."))
         return redirect(f"/entrega/{sid}", msg="Entrega definitiva registrada: queda en revisión del equipo docente.")
     return redirect(f"/entrega/{sid}")
 
@@ -1061,10 +1125,13 @@ async def entregar_fotos(
         abierta, motivo = ventana_entrega(assignment)
         if not abierta:
             return redirect(back, err=motivo)
-        if kind == "final" and not assignment["requiere_revision"]:
-            return redirect(back, err="Esta instancia es solo formativa: no tiene entrega definitiva.")
-        if kind == "practica" and assignment["tipo"] == "choice":
-            return redirect(back, err="Esta evaluación tiene una única oportunidad de entrega.")
+        # La definitiva se sube directo solo cuando la instancia no admite versiones
+        # previas. Si las admite, nace de marcar una que ya recibió devolución: así lo
+        # que se firma es exactamente lo que Lidia evaluó, y no una segunda carga.
+        if kind == "final" and assignment["max_practicas"]:
+            return redirect(back, err="La entrega definitiva se marca desde una versión ya corregida.")
+        if kind == "practica" and not assignment["max_practicas"]:
+            return redirect(back, err="Esta evaluación se entrega una sola vez: no admite versiones previas.")
         if kind == "practica" and practicas_usadas(db, user["id"], assignment_id) >= assignment["max_practicas"]:
             return redirect(back, err="Ya usaste todas tus devoluciones. Podés presentar la entrega definitiva.")
         if kind == "final" and final_activa(db, user["id"], assignment_id):
@@ -1166,7 +1233,7 @@ def entrega(request: Request, sid: int):
         abierta_p, _ = ventana_entrega(assignment)
         puede_promover = bool(
             user["role"] == "student" and sub["kind"] == "practica" and sub["ai_feedback_md"]
-            and assignment["requiere_revision"] and habilitada and abierta_p
+            and habilitada and abierta_p
             and not final_activa(db, user["id"], assignment["id"])
         )
     maxq = assignment["max_preguntas"]
@@ -1178,6 +1245,7 @@ def entrega(request: Request, sid: int):
         request, "entrega.html", sub=sub, owner=owner, course=course, assignment=assignment,
         qs=qs, maxq=maxq, q_restantes=max(0, maxq - len(qs)), puede_preguntar=puede_preguntar,
         puede_promover=puede_promover, niveles=_niveles(sub),
+        detalle_nota=_detalle_nota(sub),
     )
 
 
@@ -1210,12 +1278,12 @@ def entrega_archivo(request: Request, sid: int):
 
 @app.post("/entrega/{sid}/final")
 def promover_a_final(request: Request, sid: int):
-    """Presenta una práctica ya corregida como entrega final, sin volver a corregirla.
+    """Presenta una versión ya corregida como entrega definitiva.
 
-    Si la devolución que recibió le sirve, rehacerla cuesta una llamada al modelo y puede
-    salir distinta sobre el mismo texto: el mismo trabajo no debería recibir devoluciones
-    distintas según cuántas veces se apretó el botón. Se registra una final nueva que
-    apunta a la práctica de la que salió, y la práctica queda intacta.
+    El circuito es el mismo en las tres modalidades. Que la instancia lleve revisión humana
+    o no cambia únicamente QUIÉN cierra: con revisión, la entrega entra a la cola del equipo
+    docente y la nota queda propuesta; sin revisión, se cierra acá y la nota queda firme.
+    No tener revisión no significa no tener entrega definitiva.
     """
     user, resp = _require(request, "student")
     if resp:
@@ -1227,8 +1295,6 @@ def promover_a_final(request: Request, sid: int):
             return redirect("/panel")
         if not sub["ai_feedback_md"]:
             return redirect(volver, err="Esta entrega todavía no tiene devolución.")
-        if not assignment["requiere_revision"]:
-            return redirect(volver, err="Esta instancia es solo formativa: no tiene entrega definitiva.")
         if not inscripcion_habilitada(db, user["id"], course["id"]):
             return redirect(volver, err="Tu inscripción a esta cursada está deshabilitada.")
         abierta, motivo = ventana_entrega(assignment)
@@ -1236,22 +1302,87 @@ def promover_a_final(request: Request, sid: int):
             return redirect(volver, err=motivo or "La entrega está cerrada.")
         if final_activa(db, user["id"], assignment["id"]):
             return redirect(volver, err="Ya tenés una entrega definitiva registrada en esta instancia.")
+
+        cfg = assignment_cfg(db, course, assignment)
         grupo = grupo_de(db, user["id"], assignment["id"])
-        nueva = db.execute(
+        firma_sola = not assignment["requiere_revision"]
+        estado = "aprobada" if firma_sola else "pendiente"
+        nueva_id = db.execute(
             "INSERT INTO submissions (user_id, assignment_id, kind, status, original_filename,"
             " work_text, text_chars, truncated, ai_feedback_md, model_used, error, created_at,"
             " grupo_id, cfg_snapshot, propuesta_text, sin_propuesta, repo_url, repo_resumen,"
-            " alerta, nota, niveles, imagenes, paginas, paginas_vistas, promovida_de)"
-            " SELECT user_id, assignment_id, 'final', 'pendiente', original_filename,"
+            " alerta, niveles, imagenes, paginas, paginas_vistas, archivo_ruta, archivo_bytes,"
+            " archivo_sha256, promovida_de)"
+            " SELECT user_id, assignment_id, 'final', ?, original_filename,"
             " work_text, text_chars, truncated, ai_feedback_md, model_used, error, ?,"
             " ?, cfg_snapshot, propuesta_text, sin_propuesta, repo_url, repo_resumen,"
-            " alerta, nota, niveles, imagenes, paginas, paginas_vistas, id FROM submissions WHERE id = ?",
-            (utcnow(), grupo["id"] if grupo else None, sid),
+            " alerta, niveles, imagenes, paginas, paginas_vistas, archivo_ruta, archivo_bytes,"
+            " archivo_sha256, id FROM submissions WHERE id = ?",
+            (estado, utcnow(), grupo["id"] if grupo else None, sid),
         ).lastrowid
-    return redirect(f"/entrega/{nueva}", msg=(
-        "Listo: presentaste esta versión como entrega final, con la devolución que ya tenías. "
-        "Ahora la revisa y la firma el equipo docente."))
 
+    nota = _asentar_nota(nueva_id, cfg, firma_sola)
+    if firma_sola:
+        cuanto = f" Tu calificación es {_num_nota(nota)}." if nota is not None else ""
+        return redirect(f"/entrega/{nueva_id}", msg=(
+            "Listo: esta es tu entrega definitiva." + cuanto
+            + " Esta instancia no lleva revisión docente."))
+    return redirect(f"/entrega/{nueva_id}", msg=(
+        "Listo: presentaste esta versión como entrega definitiva, con la devolución que ya "
+        "tenías. Ahora la revisa y la firma el equipo docente."))
+
+
+def _num_nota(n) -> str:
+    return "" if n is None else (str(int(n)) if float(n) == int(n) else f"{n:.2f}".rstrip("0").rstrip("."))
+
+
+def _asentar_nota(sid: int, cfg: dict, firma_sola: bool):
+    """Cierra una entrega definitiva: le calcula la calificación y, si nadie la firma, la da por firme.
+
+    Lo comparten los dos caminos por los que nace una definitiva —marcarla desde una
+    versión ya corregida, o entregarla directo cuando la instancia no admite versiones—,
+    para que una entrega valga lo mismo por donde haya entrado.
+
+    Se hace fuera del bloque de base de quien llama: en el examen escrito puntuar implica
+    una llamada al modelo, y no conviene tener la conexión tomada mientras tanto. Si esa
+    llamada falla, la entrega queda igual: sin nota calculada, pero registrada y con su
+    devolución. Perder la entrega por no poder ponerle un número sería mucho peor.
+    """
+    with get_db() as db:
+        sub = db.execute("SELECT * FROM submissions WHERE id = ?", (sid,)).fetchone()
+    try:
+        nota, detalle = _calificar(cfg, sub)
+    except LLMError as exc:
+        log.warning("no se pudo calificar la entrega %s: %s", sid, exc)
+        nota, detalle = None, None
+    with get_db() as db:
+        db.execute("UPDATE submissions SET nota = ?, detalle_nota = ? WHERE id = ?",
+                   (nota, json.dumps(detalle, ensure_ascii=False) if detalle else "", sid))
+        if firma_sola:
+            db.execute("UPDATE submissions SET status = 'aprobada', final_feedback_md = ai_feedback_md,"
+                       " reviewed_at = ? WHERE id = ?", (utcnow(), sid))
+    return nota
+
+
+def _calificar(cfg: dict, sub) -> tuple:
+    """La nota de una entrega y el detalle de dónde salió. (nota, detalle) o (None, None).
+
+    En las tres modalidades la calcula el código, no el modelo: el multiple choice compara
+    letras, el trabajo abierto convierte los niveles de la rúbrica, y el examen escrito suma
+    los puntos que el modelo otorgó pregunta por pregunta. El número es reproducible y, sobre
+    todo, se puede mostrar de dónde salió.
+    """
+    tipo = cfg.get("tipo")
+    if tipo == "choice":
+        # Ya se calculó al recibir la entrega; se conserva tal cual.
+        return (sub["nota"] if "nota" in sub.keys() else None), None
+    if tipo == "abierto":
+        niveles = json.loads(sub["niveles"]) if (sub["niveles"] or "").strip() else []
+        return nota_de_niveles(niveles), {"tipo": "niveles", "niveles": niveles}
+    if tipo == "escrito":
+        puntajes = puntuar_examen(cfg, sub["work_text"] or "")
+        return nota_de_puntajes(puntajes), {"tipo": "puntajes", "puntajes": puntajes}
+    return None, None
 
 @app.post("/entrega/{sid}/valorar")
 async def valorar(request: Request, sid: int):
@@ -1344,7 +1475,7 @@ def admin_entregas(request: Request, curso: str | None = None):
             params.append(curso)
         where_sql = (" WHERE " + " AND ".join(where)) if where else ""
         rows = db.execute(
-            "SELECT s.*, u.full_name, u.login, a.name AS instancia, c.name || ' ' || ce.etiqueta AS course_name "
+            f"SELECT s.*, u.full_name, u.login, a.name AS instancia, c.name || ' ' || {periodo_sql('ce')} AS course_name "
             "FROM submissions s JOIN users u ON u.id = s.user_id "
             "JOIN assignments a ON a.id = s.assignment_id JOIN course_editions ce ON ce.id = a.edition_id "
             "JOIN courses c ON c.id = ce.course_id"
@@ -1392,6 +1523,7 @@ def admin_final(request: Request, sid: int):
     return render(
         request, "admin_final.html", sub=sub, owner=owner, course=course,
         assignment=assignment, repo_leido=_repo_leido(sub), niveles=_niveles(sub),
+        detalle_nota=_detalle_nota(sub),
         smtp_ok=smtp_configured(),
     )
 
@@ -1660,7 +1792,10 @@ async def admin_cursos_crear(request: Request):
     materia_nueva = (form.get("materia_nueva") or "").strip()
     volver = "/admin/cursos/nuevo"
     if not etiqueta:
-        return redirect(volver, err="La cursada necesita una etiqueta (ej.: «2026» o «2026 2C»).")
+        return redirect(volver, err="La cursada necesita una etiqueta (ej.: «2026» o «2C»).")
+    anio = _leer_anio(form.get("anio"))
+    if anio is None:
+        return redirect(volver, err=f"El año de la cursada tiene que estar entre {ANIO_MIN} y {ANIO_MAX}.")
 
     with get_db() as db:
         if materia_id == "nueva" or not materia_id:
@@ -1686,9 +1821,9 @@ async def admin_cursos_crear(request: Request):
             return redirect(volver, err=f"«{materia['name']}» ya tiene una cursada «{etiqueta}».")
 
         eid = db.execute(
-            "INSERT INTO course_editions (course_id, etiqueta, active, created_at,"
-            " fecha_inicio, fecha_fin) VALUES (?, ?, ?, ?, ?, ?)",
-            (cid_materia, etiqueta, 1 if form.get("active", "1") == "1" else 0, utcnow(),
+            "INSERT INTO course_editions (course_id, anio, etiqueta, active, created_at,"
+            " fecha_inicio, fecha_fin) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (cid_materia, anio, etiqueta, 1 if form.get("active", "1") == "1" else 0, utcnow(),
              (form.get("fecha_inicio") or "").strip(), (form.get("fecha_fin") or "").strip()),
         ).lastrowid
         # Quien la crea queda como docente, salvo que sea coordinación eligiendo a otros.
@@ -1785,9 +1920,14 @@ async def admin_curso_post(request: Request, cid: int):
                         err=f"«{course['materia']}» ya tiene una cursada «{etiqueta}».",
                     )
                 db.execute("UPDATE course_editions SET etiqueta = ? WHERE id = ?", (etiqueta, cid))
+            anio = _leer_anio(form.get("anio"), course["anio"])
+            if anio is None:
+                return redirect(f"/admin/cursos/{cid}",
+                                err=f"El año de la cursada tiene que estar entre {ANIO_MIN} y {ANIO_MAX}.")
             db.execute(
-                "UPDATE course_editions SET active = ?, fecha_inicio = ?, fecha_fin = ? WHERE id = ?",
-                (1 if form.get("active") == "1" else 0,
+                "UPDATE course_editions SET anio = ?, active = ?, fecha_inicio = ?, fecha_fin = ?"
+                " WHERE id = ?",
+                (anio, 1 if form.get("active") == "1" else 0,
                  (form.get("fecha_inicio") or "").strip(), (form.get("fecha_fin") or "").strip(), cid),
             )
             elegidos = {int(x) for x in form.getlist("docentes")}
@@ -1902,8 +2042,8 @@ def admin_instancia_editar_post(
         # el tipo solo se cambia mientras es borrador
         if assignment["active"] or tipo not in ("abierto", "escrito", "choice"):
             tipo = assignment["tipo"]
-        # el multiple choice se corrige como final: siempre pasa por una persona.
         # La propuesta solo aplica a trabajos abiertos.
+        # En el choice la casilla de revisión viaja deshabilitada y no llega marcada.
         revision = 1 if (tipo == "choice" or requiere_revision == "1") else 0
         propuesta = 1 if (tipo == "abierto" and pide_propuesta == "1") else 0
         # El repositorio acompaña a un trabajo, no a un examen escrito ni a un choice.
@@ -1911,12 +2051,16 @@ def admin_instancia_editar_post(
         vision = 1 if usa_vision == "1" else 0
         if modalidad not in ("digital", "papel", "ambos"):
             modalidad = assignment["modalidad"]
+        # Si acá cambió el tipo, los cupos lo siguen: un trabajo que pasa a ser parcial
+        # no se queda con las tres versiones mejorables que tenía.
         db.execute(
             "UPDATE assignments SET name = ?, tipo = ?, requiere_revision = ?, pide_propuesta = ?,"
             " pide_repo = ?, usa_vision = ?, modalidad = ?, fecha_apertura = ?,"
-            " fecha_cierre = ? WHERE id = ?",
+            " fecha_cierre = ?, max_practicas = ?, max_preguntas = ? WHERE id = ?",
             (name, tipo, revision, propuesta, repo, vision, modalidad,
-             fecha_apertura.strip(), fecha_cierre.strip(), aid),
+             fecha_apertura.strip(), fecha_cierre.strip(),
+             circ.ajustar(tipo, "practicas", assignment["max_practicas"]),
+             circ.ajustar(tipo, "preguntas", assignment["max_preguntas"]), aid),
         )
 
         aviso = ""
@@ -1957,14 +2101,18 @@ def admin_instancia_crear(
         cur = db.execute(
             "INSERT INTO assignments (edition_id, name, tipo, active, requiere_revision,"
             " pide_propuesta, pide_repo, usa_vision, modalidad, fecha_apertura, fecha_cierre,"
-            " created_at) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " max_practicas, max_preguntas, created_at)"
+            " VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (cid, name, tipo,
+             # el multiple choice siempre pasa por una persona: la casilla viaja
+             # deshabilitada desde el formulario y no llega marcada
              1 if (tipo == "choice" or requiere_revision == "1") else 0,
              1 if (tipo == "abierto" and pide_propuesta == "1") else 0,
              1 if (tipo == "abierto" and pide_repo == "1") else 0,
              1 if usa_vision == "1" else 0,
              modalidad if modalidad in ("digital", "papel", "ambos") else "digital",
-             fecha_apertura.strip(), fecha_cierre.strip(), utcnow()),
+             fecha_apertura.strip(), fecha_cierre.strip(),
+             circ.defectos(tipo)["practicas"], circ.defectos(tipo)["preguntas"], utcnow()),
         )
         aid = cur.lastrowid
     return redirect(f"/admin/instancias/{aid}", msg="Instancia creada — completá el material de corrección y activala.")
@@ -2052,7 +2200,12 @@ def admin_edicion_duplicar(request: Request, cid: int):
     return render(
         request, "admin_edicion_duplicar.html", origen=origen, instancias=instancias,
         docentes=docentes, origen_docentes=origen_docentes,
-        etiqueta_sug=str(datetime.now(AR_TZ).year + 1),
+        anio_sug=origen["anio"] + 1,
+        # Mientras la etiqueta sea el año, la sugerencia es el año siguiente; si dice otra
+        # cosa («1C», «Verano»), se repite tal cual, que es lo que se quiere duplicar.
+        etiqueta_sug=(str(origen["anio"] + 1)
+                      if (origen["etiqueta"] or "").strip() == str(origen["anio"])
+                      else origen["etiqueta"]),
     )
 
 
@@ -2071,6 +2224,10 @@ async def admin_edicion_duplicar_post(request: Request, cid: int):
             return redirect("/admin/cursos")
         if not etiqueta:
             return redirect(f"/admin/cursos/{cid}/duplicar", err="La cursada nueva necesita una etiqueta.")
+        anio = _leer_anio(form.get("anio"), origen["anio"] + 1)
+        if anio is None:
+            return redirect(f"/admin/cursos/{cid}/duplicar",
+                            err=f"El año de la cursada tiene que estar entre {ANIO_MIN} y {ANIO_MAX}.")
         if db.execute(
             "SELECT 1 FROM course_editions WHERE course_id = ? AND etiqueta = ?",
             (origen["course_id"], etiqueta),
@@ -2081,8 +2238,9 @@ async def admin_edicion_duplicar_post(request: Request, cid: int):
             )
 
         nueva = db.execute(
-            "INSERT INTO course_editions (course_id, etiqueta, active, created_at) VALUES (?, ?, 1, ?)",
-            (origen["course_id"], etiqueta, utcnow()),
+            "INSERT INTO course_editions (course_id, anio, etiqueta, active, created_at)"
+            " VALUES (?, ?, ?, 1, ?)",
+            (origen["course_id"], anio, etiqueta, utcnow()),
         ).lastrowid
 
         activar = 1 if form.get("activar") == "1" else 0
@@ -2186,14 +2344,18 @@ def admin_instancia_crear_global(
         cur = db.execute(
             "INSERT INTO assignments (edition_id, name, tipo, active, requiere_revision,"
             " pide_propuesta, pide_repo, usa_vision, modalidad, fecha_apertura, fecha_cierre,"
-            " created_at) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " max_practicas, max_preguntas, created_at)"
+            " VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (curso_id, name, tipo,
+             # el multiple choice siempre pasa por una persona: la casilla viaja
+             # deshabilitada desde el formulario y no llega marcada
              1 if (tipo == "choice" or requiere_revision == "1") else 0,
              1 if (tipo == "abierto" and pide_propuesta == "1") else 0,
              1 if (tipo == "abierto" and pide_repo == "1") else 0,
              1 if usa_vision == "1" else 0,
              modalidad if modalidad in ("digital", "papel", "ambos") else "digital",
-             fecha_apertura.strip(), fecha_cierre.strip(), utcnow()),
+             fecha_apertura.strip(), fecha_cierre.strip(),
+             circ.defectos(tipo)["practicas"], circ.defectos(tipo)["preguntas"], utcnow()),
         )
         aid = cur.lastrowid
     return redirect(f"/admin/instancias/{aid}", msg="Instancia creada — completá el material de corrección y activala.")
@@ -2284,6 +2446,7 @@ def admin_instancia(request: Request, aid: int, leido: dict | None = None):
     return render(
         request, "admin_instancia.html", assignment=assignment, course=course,
         n_entregas=n_entregas, items=items, puntaje_total=items_puntaje_total(items),
+        cupos=circ.cupos_de(assignment),
         vinculo_campus=lti.habilitado() and bool(lti_storage.servicios_de_instancia(aid)),
         pasos=pasos, avance=circ.resumen(pasos), sin_guardar=bool(leido),
     )
@@ -2318,11 +2481,11 @@ async def admin_instancia_post(request: Request, aid: int):
             mp = int(form.get("max_practicas", assignment["max_practicas"]))
             mq = int(form.get("max_preguntas", assignment["max_preguntas"]))
             mi = int(form.get("max_integrantes", assignment["max_integrantes"]))
-            if not (1 <= mp <= 10 and 0 <= mq <= 10 and 1 <= mi <= 8):
+            if not (0 <= mp <= 10 and 0 <= mq <= 10 and 1 <= mi <= 8):
                 raise ValueError
         except ValueError:
             return redirect(f"/admin/instancias/{aid}",
-                            err="Los cupos deben ser números (devoluciones 1–10, preguntas 0–10, integrantes 1–8).")
+                            err="Los cupos deben ser números (versiones 0–10, preguntas 0–10, integrantes 1–8).")
         name = (form.get("name") or "").strip() or assignment["name"]
         if name != assignment["name"] and db.execute(
             "SELECT 1 FROM assignments WHERE edition_id = ? AND name = ? AND id != ?", (cid, name, aid)
@@ -2331,6 +2494,10 @@ async def admin_instancia_post(request: Request, aid: int):
         tipo = form.get("tipo", assignment["tipo"])
         if tipo not in ("abierto", "escrito", "choice"):
             tipo = "abierto"
+        # El tipo de evaluación manda sobre los cupos. Se ajusta acá y no solo en el
+        # formulario: un campo bloqueado en la pantalla no es una restricción.
+        mp = circ.ajustar(tipo, "practicas", mp)
+        mq = circ.ajustar(tipo, "preguntas", mq)
         consigna = (form.get("consigna") or "").strip()
         rubrica = (form.get("rubrica") or "").strip()
         respuestas = (form.get("respuestas") or "").strip()
@@ -2468,7 +2635,7 @@ def admin_docentes(request: Request):
         return resp
     with get_db() as db:
         rows = db.execute(
-            "SELECT u.*, (SELECT GROUP_CONCAT(c.name || ' ' || ce.etiqueta, ' · ') FROM course_teachers ct "
+            f"SELECT u.*, (SELECT GROUP_CONCAT(c.name || ' ' || {periodo_sql('ce')}, ' · ') FROM course_teachers ct "
             " JOIN course_editions ce ON ce.id = ct.edition_id"
             " JOIN courses c ON c.id = ce.course_id"
             " WHERE ct.user_id = u.id) AS cursos "
@@ -2797,7 +2964,7 @@ def admin_ficha(request: Request, uid: int):
         if not row or not _student_in_scope(db, user, uid):
             return redirect("/admin/estudiantes")
         entregas = db.execute(
-            "SELECT s.*, a.name AS instancia, c.name || ' ' || ce.etiqueta AS course_name FROM submissions s "
+            f"SELECT s.*, a.name AS instancia, c.name || ' ' || {periodo_sql('ce')} AS course_name FROM submissions s "
             "JOIN assignments a ON a.id = s.assignment_id JOIN course_editions ce ON ce.id = a.edition_id "
             "JOIN courses c ON c.id = ce.course_id "
             "WHERE s.user_id = ? ORDER BY s.id DESC", (uid,)
@@ -2805,8 +2972,8 @@ def admin_ficha(request: Request, uid: int):
         # Se listan las CURSADAS, no las materias: el enlace de cada fila va a la ficha de
         # una cursada, y `habilitado` es de la inscripción, que es lo que se habilita.
         inscripciones = db.execute(
-            "SELECT ed.id AS id, ed.active AS active, ed.etiqueta,"
-            " c.name || ' ' || ed.etiqueta AS name, e.active AS habilitado, e.id AS eid,"
+            "SELECT ed.id AS id, ed.active AS active, ed.etiqueta, ed.anio,"
+            f" c.name || ' ' || {periodo_sql('ed')} AS name, e.active AS habilitado, e.id AS eid,"
             " (SELECT COUNT(*) FROM submissions s JOIN assignments a ON a.id = s.assignment_id"
             "  WHERE s.user_id = ? AND a.edition_id = ed.id) AS n_entregas"
             " FROM enrollments e JOIN course_editions ed ON ed.id = e.edition_id"
@@ -3069,7 +3236,18 @@ async def admin_papel_registrar(
              tele.get("latencia_ms"), tele.get("finish_reason"), user["id"]),
         )
         sid = cur.lastrowid
+    # Mismo cierre que las entregas que sube el propio estudiantado: se calcula la
+    # calificación, y si la instancia no lleva firma humana la entrega queda firme acá.
+    # Que la haya cargado el equipo docente cambia quién la subió, no cuánto vale ni por
+    # qué circuito pasa.
+    firma_sola = not assignment["requiere_revision"]
+    nota = _asentar_nota(sid, cfg, firma_sola)
     aviso = f" Ojo: no se pudo generar la propuesta de corrección ({error})" if error else ""
+    if firma_sola:
+        cuanto = f" Calificación: {_num_nota(nota)}." if nota is not None else ""
+        return redirect(f"/entrega/{sid}", msg=(
+            f"Examen de {alumno['full_name']} registrado y cerrado.{cuanto}"
+            f" Esta instancia no lleva revisión docente.{aviso}"))
     return redirect(f"/admin/final/{sid}",
                     msg=f"Examen de {alumno['full_name']} registrado.{aviso}")
 

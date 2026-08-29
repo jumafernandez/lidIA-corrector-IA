@@ -1,0 +1,48 @@
+{# De dónde salió la calificación.
+
+   Una nota sin su cuenta es un número que hay que creer. Acá se muestra qué aportó cada
+   criterio o cada pregunta, así el estudiante puede ver dónde perdió y el docente puede
+   revisar el reparto antes de firmar —o rectificarlo—. #}
+{% macro detalle_nota(nota, detalle, firmada) %}
+{% if nota is not none %}
+{% set niveles = {'Logrado': 10, 'En desarrollo': 6, 'Insuficiente': 3, 'No presente': 0} %}
+<section class="card nota-detalle">
+  <div class="row-between">
+    <h2>Calificación</h2>
+    <span class="nota-numero">{{ nota }}<span class="muted small"> / 10</span></span>
+  </div>
+  {% if detalle and detalle.tipo == 'niveles' and detalle.niveles %}
+    <p class="muted small">Sale de tu rúbrica: cada criterio aporta según el nivel alcanzado
+    (Logrado 10 · En desarrollo 6 · Insuficiente 3 · No presente 0), y se promedian todos por igual.</p>
+    <table>
+      <thead><tr><th>Criterio</th><th>Nivel</th><th>Aporta</th></tr></thead>
+      <tbody>
+      {% for n in detalle.niveles %}
+        <tr><td>{{ n.criterio or ('Criterio ' ~ n.n) }}</td><td>{{ n.nivel }}</td>
+            <td>{{ niveles.get(n.nivel, 0) }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  {% elif detalle and detalle.tipo == 'puntajes' and detalle.puntajes %}
+    <p class="muted small">Sale de los puntos de cada pregunta, sumados sobre el puntaje máximo del examen.</p>
+    <table>
+      <thead><tr><th>#</th><th>Puntos</th><th>Por qué</th></tr></thead>
+      <tbody>
+      {% for p in detalle.puntajes %}
+        <tr>
+          <td>{{ p.pregunta }}</td>
+          <td class="nowrap">{{ p.puntos }} / {{ p.maximo }}</td>
+          <td>{{ p.motivo }}
+            {% if p.errores %}<ul class="nota-errores">{% for e in p.errores %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
+            {% if p.faltantes %}<ul class="nota-faltantes">{% for f in p.faltantes %}<li>Falta: {{ f }}</li>{% endfor %}</ul>{% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+  <p class="muted small">{% if firmada %}Es la calificación de esta instancia.{% else %}Es la
+  calificación propuesta: la confirma o la corrige el equipo docente al firmar.{% endif %}</p>
+</section>
+{% endif %}
+{% endmacro %}

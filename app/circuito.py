@@ -59,7 +59,7 @@ def circuito(db, edicion, assignment=None) -> list:
 
     pasos = [
         _paso("cursada", "Cursada", True,
-              f"{edicion['materia']} {edicion['etiqueta']}", f"/admin/cursos/{eid}"),
+              edicion['nombre'], f"/admin/cursos/{eid}"),
         _paso("programa", "Programa", bool((edicion["programa"] or "").strip()),
               "El programa aprobado de esta cursada",
               f"/admin/cursos/{eid}/programa",
@@ -192,7 +192,7 @@ def consejo(db, cursadas, pantalla: str):
         paso = next((p for p in circuito(db, ed) if not p["listo"]), None)
         if paso and paso["clave"] in claves:
             return {"voz": paso["voz"], "url": paso["url"], "titulo": paso["titulo"],
-                    "cursada": f"{ed['materia']} {ed['etiqueta']}"}
+                    "cursada": ed['nombre']}
     return None
 
 
@@ -205,3 +205,67 @@ def consejo_sin_cursadas(puede_crear: bool) -> dict:
     return {"voz": "Todavía no te asignaron ninguna cursada. En cuanto la coordinación te sume "
                    "a una, acá vas a ver qué falta configurar.",
             "url": "", "titulo": "", "cursada": ""}
+
+
+# ------------------------------------------------------------------- cupos por tipo
+#
+# Cuántas versiones mejorables admite una instancia antes de la entrega definitiva, y
+# cuántas repreguntas se pueden hacer sobre cada devolución.
+#
+# El circuito es uno solo para las tres modalidades —se entrega, Lidia corrige, hay una
+# entrega definitiva— y lo único que cambia entre ellas es este par de números. Un trabajo
+# se rehace hasta que da; un parcial se rinde una vez, y su única entrega ES la definitiva.
+#
+# Está acá, en un renglón por tipo, a propósito. Que un examen no admita versiones previas
+# es una decisión sobre cómo se evalúa, no una propiedad del software: el día que una
+# cátedra quiera un domiciliario escrito con dos devoluciones antes de entregar, se cambia
+# el máximo de ese renglón y no hay una sola línea más que tocar en ningún lado.
+CUPOS = {
+    #            practicas: (mínimo, máximo, por defecto)
+    "abierto": {"practicas": (0, 10, 3), "preguntas": (0, 10, 3)},
+    "escrito": {"practicas": (0, 0, 0), "preguntas": (0, 0, 0)},
+    "choice":  {"practicas": (0, 0, 0), "preguntas": (0, 0, 0)},
+}
+CAMPOS = ("practicas", "preguntas")
+
+
+def cupo(tipo: str, campo: str) -> tuple:
+    """(mínimo, máximo, por defecto) de un cupo para un tipo de evaluación."""
+    return CUPOS.get(tipo, CUPOS["abierto"])[campo]
+
+
+def fijo(tipo: str, campo: str) -> bool:
+    """¿Lo decide el tipo de evaluación en vez del equipo docente?"""
+    minimo, maximo, _ = cupo(tipo, campo)
+    return minimo == maximo
+
+
+def ajustar(tipo: str, campo: str, valor) -> int:
+    """Lo que corresponde guardar: lo pedido, dentro de lo que el tipo admite.
+
+    Se aplica siempre del lado del servidor. Que el formulario muestre el campo bloqueado
+    no alcanza: un campo bloqueado no es una restricción, es una cortesía visual.
+    """
+    minimo, maximo, defecto = cupo(tipo, campo)
+    try:
+        n = int(valor)
+    except (TypeError, ValueError):
+        n = defecto
+    return max(minimo, min(maximo, n))
+
+
+def cupos_de(assignment) -> dict:
+    """Los dos cupos de una instancia, ya ajustados a su tipo, para pintar la ficha."""
+    tipo = assignment["tipo"]
+    guardado = {"practicas": assignment["max_practicas"], "preguntas": assignment["max_preguntas"]}
+    salida = {}
+    for campo in CAMPOS:
+        minimo, maximo, _ = cupo(tipo, campo)
+        salida[campo] = {"valor": ajustar(tipo, campo, guardado[campo]),
+                         "min": minimo, "max": maximo, "fijo": minimo == maximo}
+    return salida
+
+
+def defectos(tipo: str) -> dict:
+    """Los cupos con los que nace una instancia de este tipo."""
+    return {campo: cupo(tipo, campo)[2] for campo in CAMPOS}

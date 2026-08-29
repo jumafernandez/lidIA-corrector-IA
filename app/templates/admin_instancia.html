@@ -123,14 +123,21 @@
         acento, qué tono usar en la devolución, qué exigir o qué dejar pasar. El estudiantado no lo ve.") }}
         <textarea name="prompt_extra" rows="3" placeholder="Ej.: si el trabajo no declara el uso de IA generativa en su desarrollo, pedirlo explícitamente">{{ assignment.prompt_extra }}</textarea>
       </label>
+      <label>Versiones mejorables ({{ cupos.practicas.min }}–{{ cupos.practicas.max }})
+        {{ info("Cuántas veces puede entregar y recibir devolución de Lidia antes de dar el trabajo
+        por presentado. La entrega definitiva no se sube aparte: es una de esas versiones, la que el
+        estudiantado decide dar por buena.
+
+        En 0 no hay versiones previas: se entrega una sola vez y esa entrega es la definitiva. Es lo
+        que corresponde a un parcial, y por eso el examen escrito y el multiple choice lo traen fijo.") }}
+        <input name="max_practicas" value="{{ cupos.practicas.valor }}" {{ 'readonly' if cupos.practicas.fijo }}>
+        <span class="ayuda">{% if cupos.practicas.valor %}Más la entrega definitiva: {{ cupos.practicas.valor + 1 }} entregas en total.{% else %}Una sola entrega, que es la definitiva.{% endif %}</span>
+      </label>
+      <label>Preguntas por devolución ({{ cupos.preguntas.min }}–{{ cupos.preguntas.max }})
+        <input name="max_preguntas" value="{{ cupos.preguntas.valor }}" {{ 'readonly' if cupos.preguntas.fijo }}>
+        {% if cupos.preguntas.fijo %}<span class="ayuda">Sin versiones previas no hay devolución sobre la que repreguntar.</span>{% endif %}
+      </label>
       {% if assignment.tipo != 'choice' %}
-      <label>Devoluciones antes de la definitiva (1–10)
-        <input name="max_practicas" value="{{ assignment.max_practicas }}">
-        <span class="ayuda">{% if assignment.requiere_revision %}Más la entrega definitiva: {{ assignment.max_practicas + 1 }} intentos en total.{% else %}Sin entrega definitiva: son todos los intentos que tiene.{% endif %}</span>
-      </label>
-      <label>Preguntas por devolución (0–10)
-        <input name="max_preguntas" value="{{ assignment.max_preguntas }}">
-      </label>
       <label>Integrantes por grupo (1–8)
         {{ info("1 = entrega individual. Con 2 o más, el estudiantado arma sus grupos y el cupo de devoluciones pasa a ser del grupo, no de cada persona. Es un máximo: alguien puede entregar solo.") }}
         <input name="max_integrantes" value="{{ assignment.max_integrantes }}">
@@ -138,15 +145,15 @@
       {% endif %}
     </div>
     <label style="font-weight: 400; margin-bottom: 0">
-      {# Viene tildada mientras la instancia está recién creada —todavía sin consigna—, que es
-         cuando la intención es siempre activarla: se completa el material y con el mismo Guardar
-         queda visible. No hay riesgo de publicar algo a medias, porque al guardar se verifica el
-         material y, si falta, la deja en borrador avisando qué falta. Una vez que hay consigna la
-         casilla refleja el estado real y no propone nada. #}
+      {# Viene tildada mientras la instancia se está armando: activa, o todavía sin ninguna
+         entrega. La intención por defecto es publicarla, y no hay riesgo de hacerlo a medias
+         porque al guardar se verifica el material y, si falta algo, queda en borrador avisando
+         qué. Recién cuando ya recibió entregas la casilla refleja el estado real y no propone
+         nada: ahí destildarla es una decisión deliberada —cerrarla— y no un descuido. #}
       <input type="checkbox" name="active" value="1"
-             {{ 'checked' if assignment.active or not assignment.consigna }} style="width: auto; margin-right: 8px">
+             {{ 'checked' if assignment.active or not n_entregas }} style="width: auto; margin-right: 8px">
       Activa — visible para los estudiantes del curso
-      {% if assignment.tipo == 'choice' %}<span class="muted small">· entrega única, sin devoluciones previas</span>{% endif %}
+      {% if not cupos.practicas.valor %}<span class="muted small">· entrega única, sin versiones previas</span>{% endif %}
     </label>
   </section>
 

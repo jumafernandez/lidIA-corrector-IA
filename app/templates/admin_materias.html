@@ -20,7 +20,7 @@ sus cursadas. Cada una tiene su ficha, donde se renombra y se ven sus cursadas.<
       <tr>
         <td><a href="{{ base }}/admin/materias/{{ r.m.id }}">{{ r.m.name }}</a></td>
         <td>
-          {% for e in r.cursadas %}<a class="pill pill-mini pill-edicion" href="{{ base }}/admin/cursos/{{ e.id }}">{{ e.etiqueta }}</a>{{ ' ' if not loop.last }}{% else %}<span class="muted">—</span>{% endfor %}
+          {% for e in r.cursadas %}<a class="pill pill-mini pill-edicion" href="{{ base }}/admin/cursos/{{ e.id }}">{{ e.periodo }}</a>{{ ' ' if not loop.last }}{% else %}<span class="muted">—</span>{% endfor %}
         </td>
         <td>{{ r.n_est }}</td>
         <td><span class="pill pill-mini {{ 'pill-ok' if r.m.active else 'pill-warn' }}">{{ 'En el plan' if r.m.active else 'Fuera del plan' }}</span></td>
