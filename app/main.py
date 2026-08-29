@@ -12,12 +12,13 @@ from zoneinfo import ZoneInfo
 
 import markdown as md_lib
 from fastapi import FastAPI, File, Form, Request, UploadFile
-from fastapi.responses import (PlainTextResponse, HTMLResponse, JSONResponse, RedirectResponse,
+from fastapi.responses import (FileResponse, PlainTextResponse, HTMLResponse, JSONResponse,
+                               RedirectResponse,
                                Response, StreamingResponse)
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import (auth, choice as choice_mod, circuito as circ, claves, intentos,
+from . import (archivos, auth, choice as choice_mod, circuito as circ, claves, intentos,
                investigacion, lti, lti_storage, modelos, repos)
 from .db import (all_courses, ventana_entrega, fecha_corta, assignment_cfg, assignment_items, can_access_edition,
                  inscripcion_habilitada,
@@ -29,7 +30,8 @@ from .db import (all_courses, ventana_entrega, fecha_corta, assignment_cfg, assi
                  utcnow, visible_courses)
 from . import emailer
 from .emailer import desvio, smtp_configured
-from .extract import ExtractionError, extract_text
+from .extract import (ExtractionError, contar_imagenes, extract_text,
+                      paginas_de_pdf, TOPE_PAGINAS)
 from .llm import (LLMError, answer_question, criterios_de, explicar_errores,
                   generate_feedback, leer_respuestas_faltantes, model_info,
                   revisar_integridad, separar_niveles, split_items, transcribe_images)
@@ -116,6 +118,9 @@ def _startup():
     init_db()
     lti_storage.init_lti_db()
     claves.init_claves_db()
+    huerfanos = archivos.limpiar_huerfanos()
+    if huerfanos:
+        log.info("Se borraron %s carpetas de entregas sin dueño.", huerfanos)
     intentos.init_intentos_db()
 
 
@@ -721,6 +726,14 @@ def panel_instancia(request: Request, aid: int):
             ).fetchall()
         items = assignment_items(db, aid)
         habilitada = inscripcion_habilitada(db, user["id"], course["id"])
+        # La última versión ya evaluada: es lo que se puede marcar como definitiva. La
+        # definitiva no se sube aparte —sería cargar el mismo trabajo dos veces—, se
+        # elige entre lo que ya recibió devolución.
+        ultima = db.execute(
+            "SELECT * FROM submissions WHERE user_id = ? AND assignment_id = ?"
+            " AND kind = 'practica' AND COALESCE(ai_feedback_md, '') != ''"
+            " ORDER BY id DESC LIMIT 1", (user["id"], aid),
+        ).fetchone()
         grupo = grupo_de(db, user["id"], aid)
         companeros = [m for m in miembros_de(db, grupo["id"]) if m["id"] != user["id"]] if grupo else []
         grupo_cerrado = bool(grupo) and bool(db.execute(
@@ -738,7 +751,7 @@ def panel_instancia(request: Request, aid: int):
         entregas=entregas, items=items, puntaje_total=items_puntaje_total(items),
         grupo=grupo, companeros=companeros, grupo_cerrado=grupo_cerrado,
         ventana_abierta=abierta, motivo_cierre=motivo_cierre,
-        respondible=respondible,
+        respondible=respondible, ultima=ultima,
     )
 
 
@@ -878,17 +891,29 @@ async def entregar(
     # de examen en papel ya pasó por la confirmación del estudiante
     min_len = 3 if assignment["tipo"] == "choice" else (50 if origen == "foto" else 200)
     filename = ""
+    data = b""
+    imagenes = 0
+    paginas, total_paginas = [], 0
     try:
         if archivo and archivo.filename:
             data = await archivo.read()
             filename = archivo.filename
+            if assignment["usa_vision"] and not filename.lower().endswith(".pdf"):
+                return redirect(back, err=(
+                    "Esta instancia se corrige mirando el documento, así que la entrega tiene "
+                    "que ser un PDF. Exportá tu trabajo a PDF y volvé a subirlo."))
             work_text, truncated = extract_text(filename, data)
+            imagenes = contar_imagenes(filename, data)
+            if assignment["usa_vision"]:
+                # Las páginas reemplazan al texto: mandar las dos cosas sería pagar dos
+                # veces por el mismo contenido.
+                paginas, total_paginas = paginas_de_pdf(data)
         elif texto.strip():
             work_text, truncated = texto.strip(), False
             if origen == "foto":
                 filename = f"examen en papel ({fotos_n} foto{'s' if fotos_n != 1 else ''})"
             if len(work_text) < min_len:
-                return redirect(back, err="El texto pegado es demasiado corto para evaluarlo como entrega.")
+                return redirect(back, err="Lo entregado es demasiado corto para evaluarlo.")
         elif marcadas:
             # Un multiple choice respondido marcando no tiene archivo ni texto: lo que
             # entregó son las opciones elegidas. Se guardan legibles para que la entrega
@@ -897,7 +922,7 @@ async def entregar(
             truncated = False
             filename = "respuestas marcadas"
         else:
-            return redirect(back, err="Subí un archivo o pegá el texto de tu trabajo.")
+            return redirect(back, err="Elegí el archivo de tu trabajo antes de entregar.")
     except ExtractionError as exc:
         return redirect(back, err=str(exc))
 
@@ -938,8 +963,13 @@ async def entregar(
             feedback, model, tele, nota_calculada = _corregir_choice(
                 cfg, first_name(user["full_name"]), work_text, marcadas)
         else:
+            if paginas:
+                cfg = {**cfg, "por_imagen": True, "paginas_totales": total_paginas,
+                       "paginas_enviadas": len(paginas),
+                       "paginas_omitidas": max(0, total_paginas - len(paginas))}
             feedback, model, tele = generate_feedback(
-                cfg, first_name(user["full_name"]), user["profile"] or "", work_text, kind, truncated
+                cfg, first_name(user["full_name"]), user["profile"] or "", work_text, kind,
+                truncated, paginas
             )
         # Los niveles por criterio vienen al final de la devolución, en un bloque aparte:
         # se guardan como dato y se quitan del texto que lee la persona.
@@ -959,8 +989,9 @@ async def entregar(
             "INSERT INTO submissions (user_id, assignment_id, kind, status, original_filename, work_text,"
             " text_chars, truncated, ai_feedback_md, model_used, error, created_at,"
             " grupo_id, cfg_snapshot, tokens_in, tokens_out, latencia_ms, finish_reason,"
-            " propuesta_text, sin_propuesta, repo_url, repo_resumen, alerta, nota, niveles)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " propuesta_text, sin_propuesta, repo_url, repo_resumen, alerta, nota, niveles, imagenes,"
+            " paginas, paginas_vistas)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (user["id"], assignment_id, kind, status, filename, work_text, len(work_text), int(truncated),
              feedback, model, error, utcnow(),
              grupo["id"] if grupo else None, json.dumps(cfg, ensure_ascii=False),
@@ -970,8 +1001,21 @@ async def entregar(
              # En el multiple choice la nota viene calculada y queda propuesta en la ficha;
              # el docente la confirma o la cambia, igual que antes. En el resto va vacía.
              nota_calculada,
-             json.dumps(niveles, ensure_ascii=False) if niveles else ""),
+             json.dumps(niveles, ensure_ascii=False) if niveles else "", imagenes,
+             total_paginas, len(paginas)),
         )
+
+        # El archivo se guarda recién ahora: la carpeta se nombra con el id de la entrega,
+        # que no existe hasta que la fila está insertada.
+        if data and filename:
+            try:
+                guardado = archivos.guardar(cur.lastrowid, filename, data)
+                db.execute("UPDATE submissions SET archivo_ruta = ?, archivo_bytes = ?,"
+                           " archivo_sha256 = ? WHERE id = ?",
+                           (guardado["ruta"], guardado["bytes"], guardado["sha256"], cur.lastrowid))
+            except OSError:
+                # Sin espacio o sin permisos: la entrega vale igual, se pierde el original.
+                pass
         sid = cur.lastrowid
     if kind == "final":
         return redirect(f"/entrega/{sid}", msg="Entrega definitiva registrada: queda en revisión del equipo docente.")
@@ -1137,6 +1181,33 @@ def entrega(request: Request, sid: int):
     )
 
 
+@app.get("/entrega/{sid}/archivo")
+def entrega_archivo(request: Request, sid: int):
+    """Descarga el documento original de una entrega.
+
+    Lo puede bajar su autor y el equipo docente de esa cursada. Es lo que permite verificar
+    que el texto sobre el que se corrigió es de verdad lo que la persona entregó.
+    """
+    user = auth.current_user(request)
+    if not user:
+        return redirect("/login")
+    with get_db() as db:
+        sub, assignment, course = _load_submission(db, sid)
+        if not sub:
+            return redirect("/")
+        propio = sub["user_id"] == user["id"]
+        del_equipo = user["role"] in STAFF and can_access_edition(db, user, course["id"])
+        if not (propio or del_equipo):
+            return redirect("/")
+    ruta = archivos.ruta_absoluta(sub["archivo_ruta"] if "archivo_ruta" in sub.keys() else "")
+    if not ruta:
+        return redirect(f"/entrega/{sid}", err=(
+            "Esta entrega no tiene el archivo original guardado: es anterior a que "
+            "empezáramos a conservarlos, o se entregó pegando el texto."))
+    nombre = sub["original_filename"] or "entrega"
+    return FileResponse(ruta, filename=nombre)
+
+
 @app.post("/entrega/{sid}/final")
 def promover_a_final(request: Request, sid: int):
     """Presenta una práctica ya corregida como entrega final, sin volver a corregirla.
@@ -1170,11 +1241,11 @@ def promover_a_final(request: Request, sid: int):
             "INSERT INTO submissions (user_id, assignment_id, kind, status, original_filename,"
             " work_text, text_chars, truncated, ai_feedback_md, model_used, error, created_at,"
             " grupo_id, cfg_snapshot, propuesta_text, sin_propuesta, repo_url, repo_resumen,"
-            " alerta, nota, niveles, promovida_de)"
+            " alerta, nota, niveles, imagenes, paginas, paginas_vistas, promovida_de)"
             " SELECT user_id, assignment_id, 'final', 'pendiente', original_filename,"
             " work_text, text_chars, truncated, ai_feedback_md, model_used, error, ?,"
             " ?, cfg_snapshot, propuesta_text, sin_propuesta, repo_url, repo_resumen,"
-            " alerta, nota, niveles, id FROM submissions WHERE id = ?",
+            " alerta, nota, niveles, imagenes, paginas, paginas_vistas, id FROM submissions WHERE id = ?",
             (utcnow(), grupo["id"] if grupo else None, sid),
         ).lastrowid
     return redirect(f"/entrega/{nueva}", msg=(
@@ -1806,7 +1877,7 @@ def admin_instancia_editar(request: Request, aid: int):
 def admin_instancia_editar_post(
     request: Request, aid: int, name: str = Form(...), tipo: str = Form(""),
     requiere_revision: str = Form(""), pide_propuesta: str = Form(""),
-    pide_repo: str = Form(""),
+    pide_repo: str = Form(""), usa_vision: str = Form(""),
     modalidad: str = Form("digital"), fecha_apertura: str = Form(""), fecha_cierre: str = Form(""),
 ):
     user, resp = _require(request, *STAFF)
@@ -1837,12 +1908,14 @@ def admin_instancia_editar_post(
         propuesta = 1 if (tipo == "abierto" and pide_propuesta == "1") else 0
         # El repositorio acompaña a un trabajo, no a un examen escrito ni a un choice.
         repo = 1 if (tipo == "abierto" and pide_repo == "1") else 0
+        vision = 1 if usa_vision == "1" else 0
         if modalidad not in ("digital", "papel", "ambos"):
             modalidad = assignment["modalidad"]
         db.execute(
             "UPDATE assignments SET name = ?, tipo = ?, requiere_revision = ?, pide_propuesta = ?,"
-            " pide_repo = ?, modalidad = ?, fecha_apertura = ?, fecha_cierre = ? WHERE id = ?",
-            (name, tipo, revision, propuesta, repo, modalidad,
+            " pide_repo = ?, usa_vision = ?, modalidad = ?, fecha_apertura = ?,"
+            " fecha_cierre = ? WHERE id = ?",
+            (name, tipo, revision, propuesta, repo, vision, modalidad,
              fecha_apertura.strip(), fecha_cierre.strip(), aid),
         )
 
@@ -1864,7 +1937,7 @@ def admin_instancia_editar_post(
 def admin_instancia_crear(
     request: Request, cid: int, name: str = Form(...), tipo: str = Form("abierto"),
     requiere_revision: str = Form(""), pide_propuesta: str = Form(""),
-    pide_repo: str = Form(""),
+    pide_repo: str = Form(""), usa_vision: str = Form(""),
     modalidad: str = Form("digital"), fecha_apertura: str = Form(""), fecha_cierre: str = Form(""),
 ):
     user, resp = _require(request, *STAFF)
@@ -1883,12 +1956,13 @@ def admin_instancia_crear(
             return redirect(f"/admin/cursos/{cid}/instancias/nueva", err=f"Ya existe una instancia «{name}» en este curso.")
         cur = db.execute(
             "INSERT INTO assignments (edition_id, name, tipo, active, requiere_revision,"
-            " pide_propuesta, pide_repo, modalidad, fecha_apertura, fecha_cierre, created_at)"
-            " VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)",
+            " pide_propuesta, pide_repo, usa_vision, modalidad, fecha_apertura, fecha_cierre,"
+            " created_at) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)",
             (cid, name, tipo,
              1 if (tipo == "choice" or requiere_revision == "1") else 0,
              1 if (tipo == "abierto" and pide_propuesta == "1") else 0,
              1 if (tipo == "abierto" and pide_repo == "1") else 0,
+             1 if usa_vision == "1" else 0,
              modalidad if modalidad in ("digital", "papel", "ambos") else "digital",
              fecha_apertura.strip(), fecha_cierre.strip(), utcnow()),
         )
@@ -2092,7 +2166,7 @@ def admin_instancia_nueva_global(request: Request, curso: str | None = None):
 def admin_instancia_crear_global(
     request: Request, curso_id: int = Form(...), name: str = Form(...), tipo: str = Form("abierto"),
     requiere_revision: str = Form(""), pide_propuesta: str = Form(""),
-    pide_repo: str = Form(""),
+    pide_repo: str = Form(""), usa_vision: str = Form(""),
     modalidad: str = Form("digital"), fecha_apertura: str = Form(""), fecha_cierre: str = Form(""),
 ):
     user, resp = _require(request, *STAFF)
@@ -2111,12 +2185,13 @@ def admin_instancia_crear_global(
             return redirect(f"/admin/instancias/nueva?curso={curso_id}", err=f"Ya existe una instancia «{name}» en ese curso.")
         cur = db.execute(
             "INSERT INTO assignments (edition_id, name, tipo, active, requiere_revision,"
-            " pide_propuesta, pide_repo, modalidad, fecha_apertura, fecha_cierre, created_at)"
-            " VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)",
+            " pide_propuesta, pide_repo, usa_vision, modalidad, fecha_apertura, fecha_cierre,"
+            " created_at) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)",
             (curso_id, name, tipo,
              1 if (tipo == "choice" or requiere_revision == "1") else 0,
              1 if (tipo == "abierto" and pide_propuesta == "1") else 0,
              1 if (tipo == "abierto" and pide_repo == "1") else 0,
+             1 if usa_vision == "1" else 0,
              modalidad if modalidad in ("digital", "papel", "ambos") else "digital",
              fecha_apertura.strip(), fecha_cierre.strip(), utcnow()),
         )

@@ -97,6 +97,12 @@ la devolución no evalúa si el trabajo es coherente con lo que se propuso.</div
   </section>
 {% endif %}
 
+{% if sub.imagenes %}
+<div class="flash warn">La entrega trae <strong>{{ sub.imagenes }} {{ 'imágenes' if sub.imagenes != 1 else 'imagen' }}</strong>
+  (gráficos, esquemas, capturas o tablas como figura). <strong>Lidia corrige sobre el texto y no las ve</strong>,
+  así que lo que esas imágenes muestren no está evaluado{{ ' — mirá el archivo original antes de firmar' if user.role != 'student' }}.</div>
+{% endif %}
+
 {{ tira_niveles(niveles) }}
 
 {% if puede_promover %}

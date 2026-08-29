@@ -362,6 +362,36 @@ def init_db():
             # siguiente, o si la firma del docente coincide con lo que la IA había marcado—.
             db.execute("ALTER TABLE submissions ADD COLUMN niveles TEXT DEFAULT ''")
 
+        cols = {r["name"] for r in db.execute("PRAGMA table_info(submissions)")}
+        if "imagenes" not in cols:
+            # 018 — Cuántas imágenes traía el archivo entregado. La corrección es sobre el
+            # texto, así que un gráfico o un esquema no llegan al modelo; contarlas permite
+            # decirlo en vez de que el docente lo descubra por una devolución que no habla
+            # de la figura donde estaba la evidencia principal del trabajo.
+            db.execute("ALTER TABLE submissions ADD COLUMN imagenes INTEGER NOT NULL DEFAULT 0")
+
+        cols = {r["name"] for r in db.execute("PRAGMA table_info(assignments)")}
+        if "usa_vision" not in cols:
+            # 019 — La instancia se corrige mirando las páginas en vez de leyendo el texto
+            # extraído. Sirve cuando la evidencia está en figuras y tablas; cuesta más y
+            # obliga a entregar en PDF, así que es una decisión del docente y no un default.
+            db.execute("ALTER TABLE assignments ADD COLUMN usa_vision INTEGER NOT NULL DEFAULT 0")
+        cols = {r["name"] for r in db.execute("PRAGMA table_info(submissions)")}
+        if "paginas" not in cols:
+            # Cuántas páginas tenía el trabajo y cuántas se llegaron a mirar.
+            db.execute("ALTER TABLE submissions ADD COLUMN paginas INTEGER NOT NULL DEFAULT 0")
+            db.execute("ALTER TABLE submissions ADD COLUMN paginas_vistas INTEGER NOT NULL DEFAULT 0")
+
+        cols = {r["name"] for r in db.execute("PRAGMA table_info(submissions)")}
+        if "archivo_ruta" not in cols:
+            # 020 — El documento original de la entrega. Hasta acá se leía, se convertía a
+            # texto y se descartaba: si la extracción se equivocaba, nadie podía notarlo
+            # porque no quedaba contra qué comparar. Los bytes van a disco bajo DATA_DIR;
+            # esto es solo la referencia.
+            db.execute("ALTER TABLE submissions ADD COLUMN archivo_ruta TEXT DEFAULT ''")
+            db.execute("ALTER TABLE submissions ADD COLUMN archivo_bytes INTEGER NOT NULL DEFAULT 0")
+            db.execute("ALTER TABLE submissions ADD COLUMN archivo_sha256 TEXT DEFAULT ''")
+
         for key, value in DEFAULT_CONFIG.items():
             db.execute("INSERT OR IGNORE INTO config (key, value) VALUES (?, ?)", (key, value))
 
@@ -535,6 +565,7 @@ def assignment_cfg(db, edicion, assignment) -> dict:
         "programa": (edicion["programa"] or "") if "programa" in edicion.keys() else "",
         "instancia": assignment["name"],
         "pide_propuesta": bool(assignment["pide_propuesta"]) if "pide_propuesta" in assignment.keys() else False,
+        "usa_vision": bool(assignment["usa_vision"]) if "usa_vision" in assignment.keys() else False,
         "tipo": assignment["tipo"],
         "consigna": assignment["consigna"],
         "rubrica": assignment["rubrica"],

@@ -68,6 +68,21 @@
     </label>
 
     <label style="font-weight: 400">
+      <input type="checkbox" name="usa_vision" value="1"
+             {{ 'checked' if editando and assignment.usa_vision }} style="width: auto; margin-right: 8px">
+      El trabajo requiere análisis de imágenes <span class="muted small">(+ costoso)</span>
+      {{ info("Marcala SOLO si lo que se evalúa está en las figuras: una matriz de confusión, una
+      curva de aprendizaje, un esquema de arquitectura. Si el trabajo es texto con alguna imagen
+      ilustrativa, no corresponde.
+
+      Cada página se procesa como imagen: medido sobre un trabajo de 12 páginas, cuesta unas 7 veces
+      más que la corrección por texto (US$ 0,023 contra US$ 0,003) y tarda un 60% más.
+
+      Además obliga a que la entrega sea en PDF —en Word la página no existe hasta que algo lo
+      maquete— y solo se miran las primeras 12. Un trabajo más largo se procesa entero por texto.") }}
+    </label>
+
+    <label style="font-weight: 400">
       <input type="checkbox" name="pide_repo" value="1" id="chk-repo"
              {{ 'checked' if editando and assignment.pide_repo }} style="width: auto; margin-right: 8px">
       Se entrega con un repositorio de código

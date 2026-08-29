@@ -10,6 +10,16 @@
   presentó esa misma versión como definitiva, sin volver a corregirla. Es la que él ya leyó: revisala con
   ese origen en mente antes de firmar.</div>
 {% endif %}
+{% if sub.archivo_ruta %}
+<p class="muted small">📎 <a href="{{ base }}/entrega/{{ sub.id }}/archivo">Descargar el documento
+  original</a> ({{ sub.original_filename }}{% if sub.archivo_bytes %} · {{ (sub.archivo_bytes / 1024)|round|int }} KB{% endif %})
+  — es lo que se entregó, tal cual. Lo que Lidia leyó es el texto extraído de ahí.</p>
+{% endif %}
+{% if sub.imagenes %}
+<div class="flash warn">La entrega trae <strong>{{ sub.imagenes }} {{ 'imágenes' if sub.imagenes != 1 else 'imagen' }}</strong>
+  (gráficos, esquemas, capturas o tablas como figura). <strong>Lidia corrige sobre el texto y no las ve</strong>,
+  así que lo que esas imágenes muestren no está evaluado{{ ' — mirá el archivo original antes de firmar' if user.role != 'student' }}.</div>
+{% endif %}
 {% if sub.alerta %}
 <div class="flash bad">⚠ <strong>El material entregado contenía instrucciones dirigidas al corrector.</strong>
   {{ sub.alerta }}<br>

@@ -28,10 +28,12 @@ def extract_text(filename: str, data: bytes) -> tuple[str, bool]:
         text = _from_docx(data)
     elif name.endswith(".ipynb"):
         text = _from_ipynb(data)
+    elif name.endswith((".html", ".htm")):
+        text = _from_html(data)
     elif name.endswith((".txt", ".md")):
         text = data.decode("utf-8", errors="replace")
     else:
-        raise ExtractionError("Formato no soportado. Subí un notebook (.ipynb), PDF, DOCX, TXT o MD.")
+        raise ExtractionError("Formato no soportado. Subí un PDF, un Word, un notebook (.ipynb), una página HTML o texto plano.")
 
     text = text.strip()
     if not text:
@@ -53,6 +55,213 @@ TOLERANCIA_Y = 1.5   # dos fragmentos a menos de esto son el mismo renglón
 PROPORCION = 0.6     # en cuántas hojas tiene que repetirse un renglón para ser membrete
 BORDE = 3            # cuántos renglones del principio y del final pueden serlo
 SALTO_PARRAFO = 1.6  # separación, en veces el interlineado normal, que corta un párrafo
+
+
+# Cuántas figuras se le mandan al modelo como máximo y a qué tamaño. El tope existe para
+# que el costo de una corrección no dependa de cuántos gráficos puso el estudiante; el
+# tamaño, porque una captura de 4000 píxeles se paga entera y se ve igual reducida.
+TOPE_IMAGENES = 8
+LADO_MAX = 1024
+MINIMO_UTIL = 120     # por debajo de esto es un ícono o una viñeta, no una figura
+
+
+def imagenes_de(filename: str, data: bytes) -> list:
+    """Las figuras del archivo, listas para mandar: [(mime, bytes)].
+
+    Se extraen las imágenes embebidas y no las páginas rasterizadas: de un informe de 15
+    páginas, 12 son texto que el modelo ya recibe como texto, y pagarlas como imagen sería
+    pagar dos veces por lo mismo.
+
+    Salen sueltas, sin su epígrafe ni el párrafo que las rodea; van en orden de aparición
+    y así se le presentan al modelo. Ante cualquier problema devuelve lista vacía: es una
+    mejora de la corrección, no algo sin lo cual no se pueda corregir.
+    """
+    name = (filename or "").lower()
+    try:
+        if name.endswith(".pdf"):
+            crudas = _crudas_pdf(data)
+        elif name.endswith(".docx"):
+            crudas = _crudas_docx(data)
+        elif name.endswith(".ipynb"):
+            crudas = _crudas_ipynb(data)
+        else:
+            return []
+    except Exception:  # noqa: BLE001
+        return []
+    import hashlib
+
+    salida, vistas = [], set()
+    for bruto in crudas:
+        # El membrete de la institución está en todas las páginas: es una imagen sola
+        # repetida, y mandarla ocho veces sería pagar ocho veces por el mismo logo.
+        huella = hashlib.sha1(bruto).hexdigest()
+        if huella in vistas:
+            continue
+        vistas.add(huella)
+        lista = _achicar(bruto)
+        if lista:
+            salida.append(lista)
+        if len(salida) >= TOPE_IMAGENES:
+            break
+    return salida
+
+
+def _achicar(bruto: bytes) -> tuple | None:
+    """Reduce la imagen a un tamaño razonable y la devuelve como (mime, bytes)."""
+    from PIL import Image
+
+    try:
+        im = Image.open(io.BytesIO(bruto))
+        im.load()
+    except Exception:  # noqa: BLE001
+        return None
+    if min(im.size) < MINIMO_UTIL:
+        return None
+    if max(im.size) > LADO_MAX:
+        im.thumbnail((LADO_MAX, LADO_MAX))
+    if im.mode not in ("RGB", "L"):
+        im = im.convert("RGB")
+    buf = io.BytesIO()
+    im.save(buf, format="JPEG", quality=82, optimize=True)
+    return "image/jpeg", buf.getvalue()
+
+
+def _crudas_pdf(data: bytes) -> list:
+    from pypdf import PdfReader
+
+    fuera = []
+    for pagina in PdfReader(io.BytesIO(data)).pages:
+        for im in pagina.images:
+            fuera.append(im.data)
+            if len(fuera) > TOPE_IMAGENES * 3:   # con margen: después se filtran las chicas
+                return fuera
+    return fuera
+
+
+def _crudas_docx(data: bytes) -> list:
+    import zipfile
+
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        nombres = sorted(n for n in zf.namelist() if n.startswith("word/media/"))
+        return [zf.read(n) for n in nombres[: TOPE_IMAGENES * 3]]
+
+
+def _crudas_ipynb(data: bytes) -> list:
+    import base64
+
+    nb = json.loads(data.decode("utf-8", errors="replace"))
+    fuera = []
+    for celda in nb.get("cells") or []:
+        for out in celda.get("outputs") or []:
+            for k, v in (out.get("data") or {}).items():
+                if k.startswith("image/"):
+                    try:
+                        fuera.append(base64.b64decode(v if isinstance(v, str) else "".join(v)))
+                    except Exception:  # noqa: BLE001
+                        pass
+    return fuera
+
+
+# Corrección por imagen: se le manda al modelo la página tal como se ve, en vez del texto.
+# Así llegan las figuras, las tablas y la maqueta, que en la extracción de texto se pierden.
+# El tope existe para que el costo no dependa del largo del trabajo: doce páginas cubren un
+# trabajo final completo, y de ahí para arriba conviene la corrección por texto.
+TOPE_PAGINAS = 12
+ANCHO_PAGINA = 1400   # suficiente para leer cuerpo 11 sin esfuerzo; medido, no estimado
+
+
+def paginas_de_pdf(data: bytes, tope: int = TOPE_PAGINAS) -> tuple[list, int]:
+    """Las páginas del PDF como imágenes. Devuelve ([(mime, bytes)], total_de_paginas).
+
+    Solo PDF: en un Word no existe la página hasta que algo lo maqueta, y maquetarlo
+    exigiría LibreOffice en el servidor. Por eso las instancias que corrigen por imagen
+    piden la entrega en PDF, en vez de tener un camino distinto por cada formato.
+    """
+    import pypdfium2 as pdfium
+
+    doc = pdfium.PdfDocument(data)
+    total = len(doc)
+    paginas = []
+    for i in range(min(total, tope)):
+        pagina = doc[i]
+        escala = ANCHO_PAGINA / max(1.0, pagina.get_width())
+        pil = pagina.render(scale=escala).to_pil()
+        buf = io.BytesIO()
+        pil.convert("RGB").save(buf, format="JPEG", quality=80, optimize=True)
+        paginas.append(("image/jpeg", buf.getvalue()))
+    return paginas, total
+
+
+def contar_imagenes(filename: str, data: bytes) -> int:
+    """Cuántas imágenes trae el archivo. 0 si no tiene o si no se puede saber.
+
+    La corrección es sobre el texto: un gráfico, un esquema o una captura no llegan al
+    modelo. Contarlas no arregla eso, pero permite decirlo —que es distinto de que el
+    docente lo descubra cuando la devolución no menciona la matriz de confusión que el
+    trabajo mostraba en una figura—.
+
+    Ante cualquier problema devuelve 0: es un aviso, no vale hacer fallar una entrega
+    porque el conteo no salió.
+    """
+    name = (filename or "").lower()
+    try:
+        if name.endswith(".pdf"):
+            return _imagenes_pdf(data)
+        if name.endswith(".docx"):
+            return _imagenes_docx(data)
+        if name.endswith(".ipynb"):
+            return _imagenes_ipynb(data)
+        if name.endswith((".html", ".htm")):
+            return _imagenes_html(data)
+    except Exception:  # noqa: BLE001
+        return 0
+    return 0
+
+
+def _imagenes_pdf(data: bytes) -> int:
+    from pypdf import PdfReader
+
+    vistas, total = set(), 0
+    for pagina in PdfReader(io.BytesIO(data)).pages:
+        recursos = (pagina.get("/Resources") or {}).get("/XObject")
+        if not recursos:
+            continue
+        for nombre, ref in recursos.get_object().items():
+            obj = ref.get_object()
+            if obj.get("/Subtype") != "/Image":
+                continue
+            # Un logo repetido en todas las páginas es un objeto solo: se cuenta una vez.
+            clave = (getattr(ref, "idnum", None), nombre)
+            if clave in vistas:
+                continue
+            vistas.add(clave)
+            total += 1
+    return total
+
+
+def _imagenes_docx(data: bytes) -> int:
+    import zipfile
+
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        return sum(1 for n in zf.namelist()
+                   if n.startswith("word/media/") and not n.endswith("/"))
+
+
+def _imagenes_html(data: bytes) -> int:
+    import re as _re
+    # No existe otra etiqueta HTML que empiece con «img», así que alcanza con buscar eso y
+    # se evita una expresión con escapes que es fácil escribir mal.
+    return len(_re.findall(rb"<img", data, _re.IGNORECASE))
+
+
+def _imagenes_ipynb(data: bytes) -> int:
+    nb = json.loads(data.decode("utf-8", errors="replace"))
+    total = 0
+    for celda in nb.get("cells") or []:
+        for out in celda.get("outputs") or []:
+            datos = out.get("data") or {}
+            total += sum(1 for k in datos if k.startswith("image/"))
+    return total
 
 
 def _from_pdf(data: bytes) -> str:
@@ -279,6 +488,55 @@ def _salidas(outputs: list) -> str:
     if len(outputs) > SALIDAS_POR_CELDA:
         trozos.append(f"… ({len(outputs) - SALIDAS_POR_CELDA} salidas más)")
     return "\n".join(trozos)
+
+
+# Etiquetas cuyo contenido no es del documento: el guion que lo hace andar y su estilo.
+# Un notebook exportado a HTML trae bastante de las dos cosas.
+IGNORADAS = {"script", "style", "head", "noscript", "meta", "link"}
+# Etiquetas que separan bloques: sin esto el texto sale todo pegado en un renglón.
+BLOQUES = {"p", "div", "br", "li", "tr", "h1", "h2", "h3", "h4", "h5", "h6",
+           "pre", "blockquote", "section", "article", "td", "th"}
+
+
+def _from_html(data: bytes) -> str:
+    """Texto de una página HTML. Es el formato con el que se exporta un notebook.
+
+    Se usa el analizador de la biblioteca estándar en vez de sumar una dependencia: para
+    sacar el texto de un documento alcanza, y lo que no alcanzaría —interpretar CSS, correr
+    guiones— tampoco haría falta acá.
+    """
+    from html.parser import HTMLParser
+
+    class Lector(HTMLParser):
+        def __init__(self):
+            super().__init__(convert_charrefs=True)
+            self.partes, self.omitir = [], 0
+
+        def handle_starttag(self, tag, attrs):
+            if tag in IGNORADAS:
+                self.omitir += 1
+            elif tag in BLOQUES:
+                self.partes.append("\n")
+
+        def handle_endtag(self, tag):
+            if tag in IGNORADAS and self.omitir:
+                self.omitir -= 1
+            elif tag in BLOQUES:
+                self.partes.append("\n")
+
+        def handle_data(self, texto):
+            if not self.omitir and texto.strip():
+                self.partes.append(texto)
+
+    lector = Lector()
+    lector.feed(data.decode("utf-8", errors="replace"))
+    crudo = "".join(lector.partes)
+    # Renglones sin espacios de sobra, y como mucho un renglón vacío entre bloques.
+    lineas, salida = [l.strip() for l in crudo.split("\n")], []
+    for l in lineas:
+        if l or (salida and salida[-1]):
+            salida.append(" ".join(l.split()))
+    return "\n".join(salida).strip()
 
 
 def _from_docx(data: bytes) -> str:
