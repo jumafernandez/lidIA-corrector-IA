@@ -1,4 +1,5 @@
 """Base de datos SQLite: esquema, conexión y configuración."""
+import logging
 import os
 import re
 import sqlite3
@@ -235,6 +236,11 @@ def _reconstruir_ediciones():
 
         conn.isolation_level = None
         conn.execute("PRAGMA foreign_keys = OFF")
+        # Cuántas referencias colgadas hay ANTES. Una base vieja puede arrastrar alguna
+        # (sesiones de usuarios borrados, por ejemplo) que no tiene nada que ver con esto.
+        # Lo que hay que impedir es que la reconstrucción agregue nuevas, no negarse a
+        # trabajar porque la base ya venía con las suyas.
+        antes = len(conn.execute("PRAGMA foreign_key_check").fetchall())
         conn.execute("BEGIN")
         try:
             conn.execute(creacion)
@@ -244,10 +250,10 @@ def _reconstruir_ediciones():
             conn.execute("ALTER TABLE course_editions_nueva RENAME TO course_editions")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_course_editions_course"
                          " ON course_editions(course_id)")
-            rotas = conn.execute("PRAGMA foreign_key_check").fetchall()
-            if rotas:
+            despues = len(conn.execute("PRAGMA foreign_key_check").fetchall())
+            if despues > antes:
                 raise sqlite3.IntegrityError(
-                    f"la reconstrucción dejó {len(rotas)} referencias rotas")
+                    f"la reconstrucción dejó {despues - antes} referencias rotas nuevas")
             conn.execute("COMMIT")
         except Exception:
             conn.execute("ROLLBACK")
@@ -520,7 +526,16 @@ def init_db():
 
     # Fuera del bloque de arriba: necesita que `anio` exista y esté rellenado, y maneja
     # su propia conexión porque apaga las claves foráneas mientras reconstruye.
-    _reconstruir_ediciones()
+    #
+    # Si falla, se avisa y se sigue. La reconstrucción revierte sola, así que el peor caso
+    # es quedarse con la restricción vieja —que funciona, solo es más estricta de lo que
+    # queremos—. Dejar la aplicación sin arrancar por esto sería mucho peor que el problema
+    # que resuelve: ya pasó una vez, en producción.
+    try:
+        _reconstruir_ediciones()
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger("lidia").error(
+            "no se pudo cambiar la restricción de unicidad de las cursadas: %s", exc)
 
 
 def get_config(db) -> dict:
