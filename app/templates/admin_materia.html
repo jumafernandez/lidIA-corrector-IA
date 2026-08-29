@@ -48,7 +48,7 @@
     <button type="submit" class="btn primary">Guardar</button>
     {% if not cursadas %}
       <button type="submit" name="action" value="eliminar" class="btn ghost" formnovalidate
-              onclick="return confirm('¿Eliminar la materia «{{ materia.name }}»? No tiene cursadas, así que no se pierde ninguna entrega.')">Eliminar materia</button>
+              data-confirm="¿Eliminar la materia «{{ materia.name }}»? No tiene cursadas, así que no se pierde ninguna entrega.">Eliminar materia</button>
     {% else %}
       <span class="muted small">No se puede eliminar: tiene {{ cursadas|length }} cursada{{ 's' if cursadas|length != 1 }}. Borralas primero, o si ya no se dicta destildá «En el plan».</span>
     {% endif %}

@@ -60,7 +60,7 @@ y no evaluó la coherencia con lo propuesto: ese criterio lo tenés que mirar vo
         <div class="row-gap">
           <button type="submit" name="action" value="aprobar" class="btn primary">Aprobar y notificar</button>
           <button type="submit" name="action" value="reabrir" class="btn ghost" formnovalidate
-                  onclick="return confirm('Se le avisa por correo que puede volver a presentar. ¿Reabrir?')">Reabrir (pedir nueva versión)</button>
+                  data-confirm="Se le avisa por correo que puede volver a presentar. ¿Reabrir?">Reabrir (pedir nueva versión)</button>
         </div>
         <label style="margin-top: 10px">Si reabrís, ¿por qué? (opcional)
           {{ info("Va en el correo que recibe, para que sepa qué corregir antes de volver a presentar. Si lo dejás vacío, el aviso dice solo que la entrega se reabrió.") }}

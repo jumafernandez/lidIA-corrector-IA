@@ -84,7 +84,7 @@
     <button type="submit" class="btn primary">Guardar cursada</button>
     {% if user.role == 'admin' %}
       <button type="submit" name="action" value="eliminar" class="btn ghost" formnovalidate
-              onclick="return confirm('¿Eliminar la cursada «{{ course.nombre }}» con sus instancias e inscripciones?')">Eliminar cursada</button>
+              data-confirm="¿Eliminar la cursada «{{ course.nombre }}» con sus instancias e inscripciones?">Eliminar cursada</button>
     {% endif %}
   </div>
 </section>

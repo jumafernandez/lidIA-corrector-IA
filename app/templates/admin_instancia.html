@@ -156,7 +156,7 @@
     <a class="btn" href="{{ base }}/lti/notas/{{ assignment.id }}">Notas en el campus</a>
     {% endif %}
     <button type="submit" name="action" value="eliminar" class="btn ghost" formnovalidate
-            onclick="return confirm('¿Eliminar la instancia «{{ assignment.name }}»?')">Eliminar</button>
+            data-confirm="¿Eliminar la instancia «{{ assignment.name }}»?">Eliminar</button>
     <span class="nota">Para activarla hace falta el material de corrección completo.</span>
   </div>
 </form>
@@ -232,7 +232,12 @@ if (lista) {
     if (!ev.target.classList.contains('quitar')) return;
     const item = ev.target.closest('.item');
     const vacio = ![...item.querySelectorAll('textarea')].some(t => t.value.trim());
-    if (vacio || confirm('¿Quitar esta pregunta?')) { item.remove(); refrescar(); }
+    // Una pregunta vacía se quita sin preguntar; una con contenido, con el mismo diálogo
+    // que el resto de la aplicación. `confirmar()` vive en base.html.
+    if (vacio) { item.remove(); refrescar(); return; }
+    confirmar('¿Quitar esta pregunta?', 'Quitar').then(si => {
+      if (si) { item.remove(); refrescar(); }
+    });
   });
 
   lista.addEventListener('input', ev => {

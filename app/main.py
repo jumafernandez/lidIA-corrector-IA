@@ -123,15 +123,23 @@ def render(request: Request, template: str, **ctx) -> HTMLResponse:
     ctx.setdefault("user", auth.current_user(request))
     ctx.setdefault("msg", request.query_params.get("msg", ""))
     ctx.setdefault("err", request.query_params.get("err", ""))
+    ctx.setdefault("correo", request.query_params.get("correo", ""))
     return templates.TemplateResponse(request, template, ctx)
 
 
-def redirect(url: str, msg: str = "", err: str = "") -> RedirectResponse:
-    if msg:
-        url += ("&" if "?" in url else "?") + "msg=" + quote(msg)
-    if err:
-        url += ("&" if "?" in url else "?") + "err=" + quote(err)
+def redirect(url: str, msg: str = "", err: str = "", correo: str = "") -> RedirectResponse:
+    # `correo` es un canal aparte y no una frase pegada al final del mensaje: que salga o
+    # no un correo es una consecuencia distinta de la acción que se hizo, y mezclarlas hace
+    # que nadie la lea. Además, en pruebas, un correo que no salió tiene que notarse.
+    for clave, valor in (("msg", msg), ("err", err), ("correo", correo)):
+        if valor:
+            url += ("&" if "?" in url else "?") + clave + "=" + quote(valor)
     return RedirectResponse(BASE_PATH + url, status_code=303)
+
+
+def aviso_correo(ok: bool, detalle: str) -> str:
+    """El aviso que ve quien disparó el correo. La frase ya la arma `emailer`."""
+    return detalle
 
 
 def _require(request: Request, *roles: str):
@@ -277,10 +285,10 @@ def _mandar_enlace(fila, volver: str, motivo: str = "olvido"):
     armar = emailer.invitacion if motivo == "alta" else emailer.recuperacion
     ok, detalle = emailer.enviar(correo, armar(first_name(fila["full_name"]), fila["login"], enlace))
     if not ok:
-        return redirect(volver, err=f"No se pudo enviar el correo: {detalle}")
-    destino = emailer.desvio() or correo
-    return redirect(volver, msg=f"Enlace enviado a {destino}. Vence en "
-                                f"{'una semana' if motivo == 'alta' else 'dos horas'}.")
+        return redirect(volver, correo=aviso_correo(False, detalle))
+    vence = "una semana" if motivo == "alta" else "dos horas"
+    return redirect(volver, msg=f"Enlace de contraseña generado para {fila['full_name']}.",
+                    correo=aviso_correo(True, f"{detalle} El enlace vence en {vence}."))
 
 
 def _consejo(db, user, pantalla: str):
@@ -1361,17 +1369,19 @@ async def admin_final_post(request: Request, sid: int):
                 (firmada, nota, ratio, user["id"], utcnow(), sid),
             )
     if action == "aprobar":
-        _, detail = emailer.enviar(owner["email"], emailer.devolucion_aprobada(
+        ok, detail = emailer.enviar(owner["email"], emailer.devolucion_aprobada(
             first_name(owner["full_name"]), course, assignment, feedback.strip(), nota))
         campus = lti.enviar_nota_al_campus(assignment["id"], owner["id"], nota)
         return redirect("/admin/entregas",
-                        msg=f"Devolución aprobada para {owner['full_name']}. {detail}{campus}")
+                        msg=f"Devolución aprobada para {owner['full_name']}.{campus}",
+                        correo=aviso_correo(ok, detail))
     if action == "reabrir":
-        _, detail = emailer.enviar(owner["email"], emailer.entrega_reabierta(
+        ok, detail = emailer.enviar(owner["email"], emailer.entrega_reabierta(
             first_name(owner["full_name"]), course, assignment, motivo_reabrir))
         return redirect(
             "/admin/entregas",
-            msg=f"Entrega de {owner['full_name']} reabierta: puede volver a entregar. {detail}",
+            msg=f"Entrega de {owner['full_name']} reabierta: puede volver a entregar.",
+            correo=aviso_correo(ok, detail),
         )
     return redirect("/admin/entregas")
 

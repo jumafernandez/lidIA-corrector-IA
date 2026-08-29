@@ -188,9 +188,9 @@ def enviar(to_addr: str, mensaje: tuple) -> tuple[bool, str]:
     """Manda un mensaje ya armado. Devuelve (enviado, detalle); nunca lanza."""
     asunto, txt, html = mensaje
     if not to_addr:
-        return False, "El estudiante no tiene correo cargado: la devolución queda en la aplicación."
+        return False, "No se envió ningún correo: no hay dirección cargada."
     if not smtp_configured():
-        return False, "SMTP no configurado (variables SMTP_*): la devolución queda solo en la aplicación."
+        return False, "No se envió ningún correo: el servidor de correo no está configurado."
 
     host = os.environ["SMTP_HOST"]
     port = int(os.environ.get("SMTP_PORT", "587"))
@@ -225,8 +225,6 @@ def enviar(to_addr: str, mensaje: tuple) -> tuple[bool, str]:
             if user:
                 server.login(user, password)
             server.send_message(msg)
-        if real:
-            return True, f"Correo DESVIADO a {destino} (era para {real}): LidIA está en modo de prueba."
-        return True, f"Correo enviado a {destino}."
+        return True, f"Se envió un correo a {to_addr}."
     except Exception as exc:  # noqa: BLE001
         return False, f"No se pudo enviar el correo: {exc}"

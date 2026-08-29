@@ -577,11 +577,12 @@ button.leer.sonando { opacity: 1; animation: leer-pulso 1.1s ease-in-out infinit
    y la devolución. Se justifican los párrafos, no los ítems de una lista ni las tablas: un
    criterio de rúbrica o una opción de multiple choice son renglones cortos, y estirarlos a
    los dos márgenes abre huecos entre palabras en vez de ordenar. */
-.prose p,
-.enunciado p,
+.prose p, .prose li,
+.enunciado p, .enunciado li,
 .preguntas li > .prose p { text-align: justify; text-justify: inter-word; }
-/* Palabras largas —una URL, un nombre de variable— no tienen que abrir un río de blanco. */
-.prose, .enunciado { hyphens: auto; overflow-wrap: break-word; }
+/* Sin corte de palabras: el texto queda encuadrado igual y no aparecen guiones partiendo
+   palabras al medio. `overflow-wrap` queda para que una URL larga no desborde la caja. */
+.prose, .enunciado { hyphens: none; overflow-wrap: break-word; }
 .prose table, .prose pre, .prose code { text-align: left; hyphens: none; }
 
 /* Bloque de texto recortado, con degradado al final para que se vea que sigue. */
@@ -612,3 +613,25 @@ button.leer.sonando { opacity: 1; animation: leer-pulso 1.1s ease-in-out infinit
 .nivel-bajo  .nivel-etiqueta { background: #fbeaea; color: #7f1d1d; }
 .nivel-falta .nivel-marca { background: var(--muted); }
 .nivel-falta .nivel-etiqueta { background: var(--bg); color: var(--muted); }
+
+/* Aviso de correo. Va aparte del resultado de la acción porque son dos cosas distintas:
+   la corrección se firmó igual aunque el correo no salga, y al revés nadie se entera de
+   que salió. En pruebas es lo que hace visible si el envío ocurrió de verdad. */
+.flash.correo { border-color: #cbd9e6; border-left-color: #3f6d99; color: #1e3a5f; }
+.flash.correo::before { content: "✉"; background: #3f6d99; }
+
+/* Diálogo de confirmación propio, en lugar del `confirm()` del navegador. */
+#confirmar {
+  border: none; border-radius: 12px; padding: 0; max-width: 460px; width: calc(100% - 32px);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, .22); color: var(--ink);
+  font-family: var(--font-body); background: var(--card);
+}
+#confirmar::backdrop { background: rgba(15, 30, 40, .45); }
+#confirmar form { padding: 22px 24px 18px; margin: 0; }
+#confirmar p { margin: 0 0 18px; font-size: .97rem; line-height: 1.5; }
+.confirmar-botones { display: flex; justify-content: flex-end; gap: 10px; }
+.confirmar-botones .btn { margin: 0; }
+@media (max-width: 480px) {
+  .confirmar-botones { flex-direction: column-reverse; }
+  .confirmar-botones .btn { width: 100%; }
+}
