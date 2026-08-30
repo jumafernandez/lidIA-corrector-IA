@@ -103,9 +103,15 @@ def consumir(token: str, password_hash: str) -> bool:
     fila = usuario_de(token)
     if not fila:
         return False
+    ahora = utcnow()
     with get_db() as db:
-        db.execute("UPDATE users SET password_hash = ? WHERE id = ?", (password_hash, fila["uid"]))
-        db.execute("UPDATE clave_enlaces SET usado_at = ? WHERE id = ?", (utcnow(), fila["id"]))
+        # `clave_fijada_at` solo se escribe la primera vez: es «ya tuvo una contraseña
+        # suya alguna vez», no «cuándo la cambió por última vez».
+        db.execute("UPDATE users SET password_hash = ?,"
+                   " clave_fijada_at = CASE WHEN TRIM(clave_fijada_at) = '' THEN ?"
+                   " ELSE clave_fijada_at END WHERE id = ?",
+                   (password_hash, ahora, fila["uid"]))
+        db.execute("UPDATE clave_enlaces SET usado_at = ? WHERE id = ?", (ahora, fila["id"]))
     return True
 
 

@@ -609,6 +609,29 @@ def init_db():
             db.execute("UPDATE users SET apellido = ?, nombre = ? WHERE id = ?",
                        (apellido, nombre, fila["id"]))
 
+        cols = {r["name"] for r in db.execute("PRAGMA table_info(users)")}
+        if "clave_fijada_at" not in cols:
+            # 028 — Cuándo eligió su contraseña por primera vez. Sirve para saber qué
+            # correo mandarle cuando se le manda el enlace: a quien nunca tuvo una hay
+            # que darle la bienvenida, no decirle que «alguien pidió restablecerla», que
+            # es confuso y hace dudar de si el mensaje es legítimo.
+            db.execute("ALTER TABLE users ADD COLUMN clave_fijada_at TEXT NOT NULL DEFAULT ''")
+
+        # Relleno para las cuentas que ya existían, donde no hay registro de cuándo se
+        # fijó la contraseña. Se usa la evidencia de que la persona entró alguna vez:
+        # haber usado un enlace, tener sesión, o haber entregado algo. Quien no tiene
+        # ninguna de las tres nunca entró —y a esa persona le corresponde una bienvenida,
+        # no un «alguien pidió restablecer tu contraseña» de algo que nunca tuvo.
+        db.execute(
+            "UPDATE users SET clave_fijada_at = COALESCE("
+            "  (SELECT MAX(e.usado_at) FROM clave_enlaces e"
+            "    WHERE e.user_id = users.id AND e.usado_at IS NOT NULL),"
+            "  (SELECT MIN(s.created_at) FROM sessions s WHERE s.user_id = users.id),"
+            "  (SELECT MIN(x.created_at) FROM submissions x WHERE x.user_id = users.id),"
+            "  '')"
+            " WHERE TRIM(clave_fijada_at) = ''"
+        )
+
         # Sesiones de usuarios que ya no existen. La clave foránea las borraría sola, pero
         # las que quedaron son de antes de que existiera, o de un borrado hecho con las
         # claves apagadas. No molestan, salvo que ensucian cualquier revisión de integridad

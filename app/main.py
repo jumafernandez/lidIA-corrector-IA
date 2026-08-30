@@ -305,29 +305,57 @@ def _repo_leido(sub) -> str:
         return ""
 
 
-def _mandar_enlace(fila, volver: str, motivo: str = "olvido"):
-    """Le manda a esta persona el enlace para elegir contraseña.
+def _motivo_de(fila) -> str:
+    """¿Es una bienvenida o un olvido? Lo dice la persona, no quien aprieta el botón.
+
+    A quien nunca eligió una contraseña hay que darle la bienvenida y decirle cuál es su
+    usuario. Decirle en cambio que «alguien pidió restablecer tu contraseña» es confuso
+    —no tenía ninguna— y encima parece un correo sospechoso.
+    """
+    fijada = fila["clave_fijada_at"] if "clave_fijada_at" in fila.keys() else ""
+    return "olvido" if (fijada or "").strip() else "alta"
+
+
+def _enviar_enlace(fila, motivo: str = "") -> tuple[bool, str]:
+    """Manda el enlace para elegir contraseña. Devuelve (salió, qué contar).
+
+    No redirige: lo usan tanto el botón de la ficha como el alta, que tienen cada uno su
+    propia pantalla a la que volver y su propio mensaje que dar. Sin `motivo`, lo deduce
+    de si la persona ya tuvo contraseña alguna vez.
+    """
+    motivo = motivo or _motivo_de(fila)
+    correo = (fila["email"] or "").strip()
+    if not correo:
+        return False, "sin correo cargado"
+    token = claves.crear(fila["id"], motivo)
+    if not token:
+        return False, "ya se le mandaron varios enlaces hace poco"
+    enlace = emailer.url_absoluta(f"/clave/{token}")
+    armar = emailer.invitacion if motivo == "alta" else emailer.recuperacion
+    return emailer.enviar(correo, armar(first_name(fila["full_name"]), fila["login"], enlace))
+
+
+def _mandar_enlace(fila, volver: str, motivo: str = ""):
+    """El botón de la ficha: manda el enlace y vuelve a la pantalla contando qué pasó.
 
     Reemplaza al viejo «restablecer»: la coordinación ya no genera ni conoce contraseñas,
     solo dispara el correo. Si la cuenta no tiene correo cargado no hay a dónde mandarlo,
     y eso hay que decirlo en vez de fingir que se mandó.
     """
-    correo = (fila["email"] or "").strip()
-    if not correo:
+    if not (fila["email"] or "").strip():
         return redirect(volver, err=(
             f"{fila['full_name']} no tiene correo cargado, así que no hay a dónde mandarle "
             "el enlace. Cargáselo y volvé a intentar."))
-    token = claves.crear(fila["id"], motivo)
-    if not token:
+    motivo = motivo or _motivo_de(fila)
+    ok, detalle = _enviar_enlace(fila, motivo)
+    if not ok and detalle == "ya se le mandaron varios enlaces hace poco":
         return redirect(volver, err="Ya se mandaron varios enlaces a esta cuenta hace poco. "
                                     "Esperá un rato antes de pedir otro.")
-    enlace = emailer.url_absoluta(f"/clave/{token}")
-    armar = emailer.invitacion if motivo == "alta" else emailer.recuperacion
-    ok, detalle = emailer.enviar(correo, armar(first_name(fila["full_name"]), fila["login"], enlace))
     if not ok:
         return redirect(volver, correo=aviso_correo(False, detalle))
     vence = "una semana" if motivo == "alta" else "dos horas"
-    return redirect(volver, msg=f"Enlace de contraseña generado para {fila['full_name']}.",
+    que = "Invitación enviada" if motivo == "alta" else "Enlace de contraseña generado"
+    return redirect(volver, msg=f"{que} para {fila['full_name']}.",
                     correo=aviso_correo(True, f"{detalle} El enlace vence en {vence}."))
 
 
@@ -511,6 +539,13 @@ def login(request: Request, login_id: str = Form(...), password: str = Form(...)
     # los estudiantes deshabilitados sí entran (ven su historial y el aviso administrativo)
     if row["role"] != "student" and not row["active"]:
         return redirect("/login", err="Tu usuario está deshabilitado. Hablá con la coordinación.")
+    # Si entró con su contraseña, es que tiene una. Se anota la primera vez y nunca más:
+    # así el enlace que se le mande después dice «restablecer» y no «bienvenido», sin
+    # depender de que quede rastro de sesiones viejas.
+    if not (row["clave_fijada_at"] if "clave_fijada_at" in row.keys() else "").strip():
+        with get_db() as db:
+            db.execute("UPDATE users SET clave_fijada_at = ? WHERE id = ? AND TRIM(clave_fijada_at) = ''",
+                       (utcnow(), row["id"]))
     token = auth.create_session(row["id"])
     resp = redirect("/")
     resp.set_cookie(
@@ -3041,9 +3076,23 @@ async def admin_docentes_crear(request: Request):
         uid = cur.lastrowid
         for cid in form.getlist("cursos"):
             db.execute("INSERT INTO course_teachers (edition_id, user_id) VALUES (?, ?)", (int(cid), uid))
-    return redirect("/admin/docentes", msg=(
-        f"Docente {nombre} creado → usuario: {login_id}. Todavía no tiene contraseña: "
-        "mandale el enlace desde su ficha para que elija la suya."))
+        creado = db.execute("SELECT * FROM users WHERE id = ?", (uid,)).fetchone()
+
+    # La invitación sale sola al crear: pedirle a quien da de alta que además se acuerde de
+    # apretar un botón es una forma segura de que haya cuentas que nunca se puedan usar. El
+    # botón de la ficha queda igual, para cuando el correo rebota o la persona lo perdió.
+    if not email:
+        return redirect("/admin/docentes", msg=(
+            f"Docente {nombre} creado → usuario: {login_id}. No tiene correo cargado, así que "
+            "no se le pudo mandar la invitación: cargáselo y mandásela desde su ficha."))
+    ok, detalle = _enviar_enlace(creado, "alta")
+    if not ok:
+        return redirect("/admin/docentes",
+                        msg=f"Docente {nombre} creado → usuario: {login_id}.",
+                        correo=aviso_correo(False, detalle))
+    return redirect("/admin/docentes",
+                    msg=f"Docente {nombre} creado → usuario: {login_id}.",
+                    correo=aviso_correo(True, f"{detalle} El enlace vence en una semana."))
 
 
 @app.get("/admin/docentes/{uid}", response_class=HTMLResponse)
