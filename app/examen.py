@@ -13,12 +13,17 @@ perderse porque se cortó la luz, se cerró una pestaña o se quedó sin baterí
 —desde esa máquina o desde otra— encuentra lo que había escrito. Y lo que vale al cerrar
 la ventana es lo que estaba guardado, no lo que quedó en una pantalla que nadie envió.
 
-Los incidentes se registran, no bloquean. Una página web no puede impedir que alguien
-cambie de aplicación, abra el teléfono o copie de otro lado; prometer lo contrario sería
-vender una seguridad que no existe. Lo que sí se puede es dejar constancia de lo que
-ocurre en la pantalla del examen, avisárselo a quien rinde en el momento, y mostrárselo
-después a quien corrige. Es una señal para que la mire una persona, nunca un veredicto
-automático.
+Los incidentes se registran y se avisan; casi nada se bloquea. Una página web no puede
+impedir que alguien cambie de aplicación, abra el teléfono o lea de otra pantalla, y
+prometer lo contrario sería vender una seguridad que no existe. La única excepción es
+pegar texto, que sí se impide en el cuadro de respuesta: no es infranqueable —quien abra
+las herramientas del navegador lo saltea— pero convierte un Cmd+V distraído en algo
+deliberado, y el intento queda anotado igual.
+
+Del resto queda constancia, se le avisa a quien rinde en el momento —con un cartel que
+tapa el examen hasta que lo cierre, para que no se pueda decir que no se enteró— y lo ve
+después quien corrige. Es una señal para que la mire una persona, nunca un veredicto
+automático: salir de la pantalla puede ser trampa o puede ser que se cayó la conexión.
 """
 import json
 
@@ -28,7 +33,7 @@ from .db import get_db, utcnow
 # que poder explicarse en una frase a quien rinde y a quien corrige.
 TIPOS = {
     "salida": "Salió de la pantalla del examen",
-    "pegado": "Pegó texto desde otro lado",
+    "pegado": "Intentó pegar texto desde otro lado",
 }
 
 # Cuánto puede seguir guardándose después de la hora de cierre. Es para la carrera entre
@@ -122,6 +127,20 @@ def colgar_de_entrega(db, user_id: int, assignment_id: int, submission_id: int):
     )
 
 
+def cuantos(db, user_id: int, assignment_id: int) -> dict:
+    """Cuántos incidentes de cada tipo lleva, para mostrarlo mientras rinde.
+
+    El contador vive a la vista durante todo el examen: es lo que de verdad recuerda que
+    se está anotando, sin costar tiempo a quien no hizo nada.
+    """
+    filas = db.execute(
+        "SELECT tipo, COUNT(*) n FROM incidentes"
+        " WHERE user_id = ? AND assignment_id = ? AND submission_id IS NULL GROUP BY tipo",
+        (user_id, assignment_id),
+    ).fetchall()
+    return {t: 0 for t in TIPOS} | {f["tipo"]: f["n"] for f in filas}
+
+
 def de_entrega(db, submission_id: int):
     return db.execute(
         "SELECT * FROM incidentes WHERE submission_id = ? ORDER BY created_at",
@@ -135,12 +154,17 @@ def resumen(filas) -> dict:
     pegados = [f for f in filas if f["tipo"] == "pegado"]
     segundos = sum(_dato(f, "segundos") for f in salidas)
     caracteres = sum(_dato(f, "caracteres") for f in pegados)
+    # Desde que el pegado se bloquea, lo que queda registrado es el INTENTO: el texto no
+    # entró. Las anotaciones viejas, de cuando se dejaba pasar, se siguen leyendo como lo
+    # que fueron. Decir «pegó» de algo que no pegó sería acusar de más.
+    bloqueados = [f for f in pegados if _dato(f, "bloqueado")]
     partes = []
     if salidas:
         partes.append(f"Salió de la pantalla {_veces(len(salidas))}"
                       + (f" ({_duracion(segundos)} en total)" if segundos else ""))
     if pegados:
-        partes.append(f"Pegó texto {_veces(len(pegados))}"
+        verbo = "Intentó pegar texto" if len(bloqueados) == len(pegados) else "Pegó texto"
+        partes.append(f"{verbo} {_veces(len(pegados))}"
                       + (f" ({caracteres} caracteres)" if caracteres else ""))
     return {"hay": bool(filas), "salidas": len(salidas), "pegados": len(pegados),
             "segundos": segundos, "caracteres": caracteres,

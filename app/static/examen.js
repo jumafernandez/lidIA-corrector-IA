@@ -1,10 +1,12 @@
 // El examen que se rinde en la plataforma.
 //
-// Tres responsabilidades, y ninguna más: guardar lo escrito en el servidor mientras se
-// trabaja, mostrar cuánto tiempo queda, y dejar constancia de dos cosas que pasan en la
-// pantalla. No intenta bloquear nada: una página web no puede impedir que alguien cambie
-// de aplicación o copie de otro lado, y fingir lo contrario sería peor que no hacer nada,
-// porque daría una seguridad que no existe.
+// Tres responsabilidades: guardar lo escrito en el servidor mientras se trabaja, mostrar
+// cuánto tiempo queda, y dejar constancia de dos cosas que pasan en la pantalla.
+//
+// Lo único que se bloquea es pegar texto. Del resto no se puede: una página web no puede
+// impedir que alguien cambie de aplicación, lea de otra pantalla o tenga el teléfono al
+// lado, y fingir lo contrario sería peor que no hacer nada, porque daría una seguridad que
+// no existe. Lo que sí se hace es que no pueda decir que no se enteró.
 (function () {
   const cab = document.querySelector("[data-examen]");
   if (!cab) return;
@@ -81,30 +83,59 @@
 
   // ---------------------------------------------------------------- incidentes
   //
-  // Se registran, se avisan, y no bloquean. El aviso es inmediato a propósito: enterarse
-  // al final de que algo quedó anotado sería una trampa; enterarse en el momento permite
-  // corregir la conducta o pedir explicaciones.
+  // El aviso es inmediato a propósito: enterarse al final de que algo quedó anotado sería
+  // una trampa; enterarse en el momento permite corregir la conducta o pedir explicaciones.
+  // Y por eso la salida tapa el examen hasta que se la cierre, en vez de una banda que se
+  // puede pasar por alto si uno está escribiendo más abajo.
+  const elBloqueo = document.getElementById("bloqueo");
+  const elBloqueoTexto = document.getElementById("bloqueo-texto");
+  const elContador = document.getElementById("contador");
+
   function avisar(texto) {
     elAviso.textContent = texto;
     elAviso.hidden = false;
   }
 
+  // Volver de afuera tapa el examen hasta que se cierre con un clic. Sin temporizador: si
+  // la salida fue un falso positivo, no le cuesta tiempo a quien no hizo nada.
+  function bloquear(texto) {
+    elBloqueoTexto.textContent = texto;
+    elBloqueo.hidden = false;
+    document.getElementById("bloqueo-cerrar").focus();
+  }
+  document.getElementById("bloqueo-cerrar").addEventListener("click", () => {
+    elBloqueo.hidden = true;
+  });
+
+  function pintarContador(llevados) {
+    if (!llevados) return;
+    const s = llevados.salida || 0, p = llevados.pegado || 0;
+    if (!s && !p) { elContador.hidden = true; return; }
+    const partes = [];
+    if (s) partes.push(`${s} salida${s === 1 ? "" : "s"} de la pantalla`);
+    if (p) partes.push(`${p} intento${p === 1 ? "" : "s"} de pegar`);
+    elContador.textContent = "Registrado en este examen: " + partes.join(" · ");
+    elContador.hidden = false;
+  }
+  pintarContador({ salida: +elContador.dataset.salidas, pegado: +elContador.dataset.pegados });
+
+  // Se registra con fetch y no con sendBeacon porque hace falta la respuesta: el servidor
+  // devuelve cuántos van, y ese número es el que se muestra. La salida se envía al VOLVER,
+  // con la pestaña ya visible, así que no hay riesgo de que el envío se cancele.
   function registrar(tipo, detalle) {
-    const cuerpo = JSON.stringify({ tipo, detalle });
-    // `sendBeacon` sobrevive a que la pestaña se cierre o se oculte, que es justo cuando
-    // más falta hace registrar: un fetch normal se cancela con la página.
-    if (navigator.sendBeacon) {
-      navigator.sendBeacon(`${base}/examen/${aid}/incidente`,
-        new Blob([cuerpo], { type: "application/json" }));
-      // El aviso se arma acá porque el beacon no devuelve respuesta.
-      avisar(tipo === "salida"
-        ? "Quedó registrado que saliste de la pantalla del examen. El equipo docente lo va a ver junto a tu entrega."
-        : "Quedó registrado que pegaste texto desde otro lado. El equipo docente lo va a ver junto a tu entrega.");
-      return;
-    }
-    fetch(`${base}/examen/${aid}/incidente`, {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: cuerpo,
-    }).then(r => r.json()).then(d => { if (d && d.aviso) avisar(d.aviso); }).catch(() => {});
+    return fetch(`${base}/examen/${aid}/incidente`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tipo, detalle }),
+    }).then(r => r.json()).then(d => {
+      if (!d || !d.ok) return;
+      pintarContador(d.llevados);
+      if (tipo === "salida") bloquear(d.aviso); else avisar(d.aviso);
+    }).catch(() => {
+      // Sin conexión no se pierde el aviso, aunque el conteo quede para el próximo.
+      if (tipo === "salida") bloquear("Saliste de la pantalla del examen.");
+      else avisar("No se puede pegar texto en el examen. Quedó registrado el intento.");
+    });
   }
 
   // Salir de la pantalla. Se pide que dure algo —dos segundos— para no anotar el
@@ -126,12 +157,23 @@
   window.addEventListener("blur", seFue);
   window.addEventListener("focus", volvio);
 
-  // Pegar desde afuera. Se registra cuánto, no qué: el contenido es la respuesta de la
-  // persona y no hay ninguna razón para guardarlo dos veces.
+  // Pegar desde afuera: se impide y se anota el intento. Bloquear en el navegador no es
+  // infranqueable —quien abra las herramientas de desarrollo lo saltea— pero convierte un
+  // Cmd+V distraído en algo deliberado, que es exactamente lo que se busca. Se registra
+  // cuánto, no qué: el texto es de la persona y no hay razón para guardarlo.
+  //
+  // El arrastrar-y-soltar va junto: es la otra forma de meter texto de afuera y no dispara
+  // el mismo evento, así que bloquear solo el pegado dejaría la puerta de al lado abierta.
   campos.forEach(c => {
     c.addEventListener("paste", ev => {
+      ev.preventDefault();
       const texto = (ev.clipboardData || window.clipboardData)?.getData("text") || "";
-      if (texto.length) registrar("pegado", { caracteres: texto.length });
+      registrar("pegado", { caracteres: texto.length, bloqueado: 1 });
+    });
+    c.addEventListener("drop", ev => {
+      ev.preventDefault();
+      const texto = ev.dataTransfer?.getData("text") || "";
+      registrar("pegado", { caracteres: texto.length, bloqueado: 1 });
     });
   });
 

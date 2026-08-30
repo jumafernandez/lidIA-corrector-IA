@@ -1051,11 +1051,13 @@ def examen(request: Request, aid: int):
 
     with get_db() as db:
         borrador = examen_mod.abrir(db, user["id"], aid)
+        llevados = examen_mod.cuantos(db, user["id"], aid)
     return render(
         request, "examen.html", assignment=assignment, course=course, items=items,
         puntaje_total=items_puntaje_total(items),
         respuestas=examen_mod.respuestas_de(borrador),
         cierre=cierre, ahora=ahora, guardado=borrador["guardado_at"],
+        llevados=llevados,
     )
 
 
@@ -1118,17 +1120,19 @@ async def examen_incidente(request: Request, aid: int):
         if not assignment or tipo not in examen_mod.TIPOS:
             return JSONResponse({"ok": False}, status_code=409)
         cuantas = examen_mod.registrar(db, user["id"], aid, tipo, detalle)
-    return JSONResponse({"ok": True, "aviso": _aviso_incidente(tipo, cuantas)})
+        llevados = examen_mod.cuantos(db, user["id"], aid)
+    return JSONResponse({"ok": True, "aviso": _aviso_incidente(tipo, cuantas),
+                         "llevados": llevados})
 
 
 def _aviso_incidente(tipo: str, cuantas: int) -> str:
     """Lo que se le dice a quien rinde, en el momento. Sin acusar y sin esconder nada."""
     veces = "" if cuantas <= 1 else f" (van {cuantas})"
     if tipo == "salida":
-        que = f"Quedó registrado que saliste de la pantalla del examen{veces}."
+        que = f"Saliste de la pantalla del examen{veces}."
     else:
-        que = f"Quedó registrado que pegaste texto desde otro lado{veces}."
-    return que + " El equipo docente lo va a ver junto a tu entrega."
+        que = f"No se puede pegar texto en el examen. Quedó registrado el intento{veces}."
+    return que + " El equipo docente está al tanto: lo ve junto a tu entrega."
 
 
 @app.post("/examen/{aid}/entregar")

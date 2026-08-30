@@ -721,3 +721,29 @@ input[type="datetime-local"]:hover::-webkit-calendar-picker-indicator { opacity:
 .incidentes summary { cursor: pointer; font-size: .9rem; }
 .incidentes ul { margin: 8px 0 0; padding-left: 20px; }
 .incidentes li { font-size: .88rem; color: var(--muted); }
+
+/* El contador de incidentes: fijo mientras dura el examen, sin gritar. */
+.examen-contador {
+  margin-top: 10px; padding: 6px 10px; border-radius: var(--radius);
+  background: var(--warn-bg); color: var(--warn-ink);
+  font-size: .82rem; font-weight: 600;
+}
+/* Volver de afuera tapa el examen hasta que se cierre con un clic. Rojo y a pantalla
+   completa para que no se pueda pasar por alto; sin temporizador, para que a quien no
+   hizo nada no le cueste tiempo. */
+.examen-bloqueo {
+  position: fixed; inset: 0; z-index: 50;
+  display: flex; align-items: center; justify-content: center; padding: 24px;
+  background: rgba(120, 12, 12, .96);
+}
+.examen-bloqueo[hidden] { display: none; }
+.examen-bloqueo-caja {
+  max-width: 520px; text-align: center; color: #fff;
+  font-family: var(--font-body);
+}
+.examen-bloqueo-caja h2 {
+  font-family: var(--font-title); font-size: 1.6rem; margin: 0 0 14px; color: #fff;
+}
+.examen-bloqueo-caja p { font-size: 1.05rem; line-height: 1.6; margin: 0 0 10px; }
+.examen-bloqueo-caja .bloqueo-nota { font-size: .92rem; opacity: .85; margin-bottom: 22px; }
+.examen-bloqueo-caja .btn { background: #fff; color: #7a0c0c; border-color: #fff; font-weight: 700; }

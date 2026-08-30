@@ -22,6 +22,10 @@
       <span class="muted small" id="guardado">Guardado</span>
     </div>
   </div>
+  {# El contador vive a la vista todo el examen: es lo que de verdad recuerda que se está
+     anotando, y no le cuesta un segundo a quien no hizo nada. #}
+  <div class="examen-contador" id="contador" {{ 'hidden' if not (llevados.salida or llevados.pegado) }}
+       data-salidas="{{ llevados.salida }}" data-pegados="{{ llevados.pegado }}"></div>
   <div class="flash warn examen-aviso" id="aviso-incidente" hidden></div>
   <div class="flash bad examen-aviso" id="aviso-conexion" hidden>Sin conexión: lo que escribas se guarda en cuanto vuelva.</div>
 </div>
@@ -65,9 +69,20 @@
   </div>
 </form>
 
-<p class="muted small examen-nota">Mientras rendís queda registrado si salís de esta pantalla o si pegás
-texto desde otro lado, y el equipo docente lo ve junto a tu entrega. No se registra nada más, y nada
-de eso te bloquea: podés seguir trabajando igual.</p>
+<p class="muted small examen-nota">En este examen <strong>no se puede pegar texto</strong>: escribí tus
+respuestas acá. Si salís de esta pantalla o intentás pegar, queda registrado y el equipo docente lo ve
+junto a tu entrega. No se registra nada más de lo que hagas fuera de esta pantalla.</p>
+
+{# Cartel de regreso: tapa el examen hasta que se lo cierre con un clic. Sin
+   temporizador a propósito — si la salida fue un falso positivo, no le cuesta tiempo. #}
+<div class="examen-bloqueo" id="bloqueo" hidden>
+  <div class="examen-bloqueo-caja">
+    <h2>Saliste de la pantalla del examen</h2>
+    <p id="bloqueo-texto"></p>
+    <p class="bloqueo-nota">El equipo docente está al tanto: queda registrado junto a tu entrega.</p>
+    <button type="button" class="btn" id="bloqueo-cerrar" autofocus>Volver al examen</button>
+  </div>
+</div>
 
 <script src="{{ base }}/static/examen.js"></script>
 {% endblock %}
