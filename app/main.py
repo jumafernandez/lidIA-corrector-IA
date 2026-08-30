@@ -18,12 +18,14 @@ from fastapi.responses import (FileResponse, PlainTextResponse, HTMLResponse, JS
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import (archivos, auth, choice as choice_mod, circuito as circ, claves, intentos,
+from . import (archivos, auth, choice as choice_mod, circuito as circ, claves,
+               examen as examen_mod, intentos,
                investigacion, lti, lti_storage, modelos, repos)
-from .db import (all_courses, anio_actual, periodo_sql, ventana_entrega, fecha_corta, assignment_cfg,
+from .db import (ahora_local, all_courses, anio_actual, momento_apertura, momento_cierre,
+                 periodo_sql, ventana_entrega, fecha_corta, assignment_cfg,
                  assignment_items, can_access_edition,
                  inscripcion_habilitada,
-                 grupo_de, grupos_de_instancia, miembros_de,
+                 grupo_de, miembros_de,
                  course_editions, edition_assignments, edition_teachers, enroll, final_activa,
                  get_assignment, get_config, get_course, get_db, get_edition, init_db,
                  is_enrolled, items_puntaje_total, practicas_usadas, preguntas_usadas,
@@ -31,8 +33,7 @@ from .db import (all_courses, anio_actual, periodo_sql, ventana_entrega, fecha_c
                  utcnow, visible_courses)
 from . import emailer
 from .emailer import desvio, smtp_configured
-from .extract import (ExtractionError, contar_imagenes, extract_text,
-                      paginas_de_pdf, TOPE_PAGINAS)
+from .extract import ExtractionError, contar_imagenes, extract_text, paginas_de_pdf
 from .llm import (LLMError, answer_question, criterios_de, explicar_errores,
                   generate_feedback, leer_respuestas_faltantes, model_info,
                   nota_de_niveles, nota_de_puntajes, puntuar_examen,
@@ -236,7 +237,15 @@ def _corregir_choice(cfg, nombre, work_text, marcadas=None):
     errores = [d for d in resultado["detalle"] if not d["acerto"]]
     explicacion, modelo, tele = "", "", {}
     if errores:
-        explicacion, modelo, tele = explicar_errores(cfg, nombre, errores)
+        try:
+            explicacion, modelo, tele = explicar_errores(cfg, nombre, errores)
+        except LLMError as exc:
+            # La nota ya está: comparar letras y sumar puntajes es aritmética y no necesitó
+            # al modelo. Perderla porque falló la parte que solo explica sería tirar lo que
+            # sí salió bien. Queda la tabla, que muestra pregunta por pregunta qué pasó.
+            log.warning("no se pudo explicar los errores del choice: %s", exc)
+            explicacion = ("_No se pudo generar la explicación de los errores en este "
+                           "momento. El detalle de cada pregunta está en la tabla._")
 
     partes = ["## Resultado", choice_mod.tabla_markdown(resultado)]
     if explicacion:
@@ -244,6 +253,18 @@ def _corregir_choice(cfg, nombre, work_text, marcadas=None):
     elif not errores:
         partes.append("Respondiste todo bien. No hay nada que corregir acá.")
     return "\n\n".join(partes), modelo or "deterministico", tele, resultado["nota"]
+
+
+def _incidentes(db, sub) -> dict:
+    """Lo que quedó registrado mientras rendía, listo para la ficha.
+
+    Lo ven las dos partes: quien corrige, para poder mirarlo antes de firmar; y quien
+    rindió, porque se le avisó en el momento y sería raro escondérselo después.
+    """
+    filas = examen_mod.de_entrega(db, sub["id"])
+    datos = examen_mod.resumen(filas)
+    datos["filas"] = filas
+    return datos
 
 
 def _detalle_nota(sub) -> dict:
@@ -562,7 +583,12 @@ def logout(request: Request):
 
 @app.get("/salud")
 def salud():
-    return {"ok": True, "modelo": model_info()}
+    # El correo entra acá porque su falta no se nota hasta que alguien espera un enlace
+    # que nunca llega: sin esto, la única forma de descubrirlo es que falle en manos de
+    # una persona. `desvio` avisa si los correos se están desviando a una casilla de
+    # pruebas, que en producción no debería pasar nunca.
+    return {"ok": True, "modelo": model_info(),
+            "correo": {"configurado": smtp_configured(), "desvio": desvio()}}
 
 
 # ---------------------------------------------------------------- cuenta
@@ -658,8 +684,23 @@ def cuenta_foto_quitar(request: Request):
 
 @app.get("/avatar/{uid}")
 def avatar(request: Request, uid: int):
-    if not auth.current_user(request):
+    """La foto de alguien, para quien tenga algo que ver con esa persona.
+
+    Estar logueado no alcanzaba: con el id en la dirección, cualquiera podía recorrer las
+    fotos de toda la universidad. Se sirve la propia, la de cualquiera si mirás desde el
+    equipo docente, y la de quien comparte una cursada con vos.
+    """
+    quien = auth.current_user(request)
+    if not quien:
         return redirect("/login")
+    if quien["id"] != uid and quien["role"] not in STAFF:
+        with get_db() as db:
+            juntos = db.execute(
+                "SELECT 1 FROM enrollments a JOIN enrollments b ON a.edition_id = b.edition_id"
+                " WHERE a.user_id = ? AND b.user_id = ? LIMIT 1", (quien["id"], uid),
+            ).fetchone()
+        if not juntos:
+            return Response(status_code=404)
     with get_db() as db:
         row = db.execute("SELECT avatar, avatar_mime FROM users WHERE id = ?", (uid,)).fetchone()
     if not row or not row["avatar"]:
@@ -673,6 +714,25 @@ def avatar(request: Request, uid: int):
 # Una cursada tiene que caer en un año plausible: el campo viene precargado con el año
 # en curso, así que un valor fuera de rango es un dedazo, no una intención.
 ANIO_MIN, ANIO_MAX = 2000, 2100
+
+
+def _en_plataforma(tipo: str, marcado: str, fecha_cierre: str) -> tuple[int, str]:
+    """¿La instancia se rinde en la plataforma? Devuelve (0/1, aviso para el docente).
+
+    Solo tiene sentido donde hay preguntas cargadas —un examen escrito o un multiple
+    choice—: un trabajo abierto se hace con las herramientas de cada quien y encerrarlo en
+    un cuadro de texto no aportaría nada.
+
+    Y exige hora de cierre. Todo el espacio se apoya en un plazo: el reloj que se ve
+    mientras se rinde, y la entrega automática de lo guardado cuando se acaba. Sin cierre
+    no hay ninguna de las dos, y quedaría un examen abierto para siempre.
+    """
+    if marcado != "1" or tipo not in ("escrito", "choice"):
+        return 0, ""
+    if not fecha_cierre.strip():
+        return 0, (" No quedó marcado que se rinda en la plataforma: para eso hace falta "
+                   "la fecha y hora de cierre, que es de donde sale el reloj del examen.")
+    return 1, ""
 
 
 def _leer_anio(valor, por_defecto: int | None = None) -> int | None:
@@ -745,7 +805,11 @@ def panel_curso(request: Request, cid: int):
         return resp
     with get_db() as db:
         course = get_edition(db, cid)
-        if not course or not course["active"] or not is_enrolled(db, user["id"], cid):
+        # Una cursada cerrada se sigue viendo: es lo que promete su tarjeta, y con una
+        # sola cursada cerrada rebotar a /panel armaba un bucle de redirecciones, porque
+        # /panel vuelve a entrar a la única que hay. Entregar ya está bloqueado en las
+        # rutas de entrega, que sí miran si la cursada está abierta.
+        if not course or not is_enrolled(db, user["id"], cid):
             return redirect("/panel")
         cfg = get_config(db)
         items = []
@@ -770,7 +834,7 @@ def panel_instancia(request: Request, aid: int):
         if not assignment or not assignment["active"]:
             return redirect("/panel")
         course = get_edition(db, assignment["edition_id"])
-        if not course["active"] or not is_enrolled(db, user["id"], course["id"]):
+        if not is_enrolled(db, user["id"], course["id"]):
             return redirect("/panel")
         cfg = get_config(db)
         usadas = practicas_usadas(db, user["id"], aid)
@@ -804,18 +868,29 @@ def panel_instancia(request: Request, aid: int):
             "SELECT 1 FROM submissions WHERE assignment_id = ? AND user_id IN "
             "(SELECT user_id FROM grupo_miembros WHERE grupo_id = ?)", (aid, grupo["id"])
         ).fetchone())
+        # Si ya entró al examen alguna vez, el botón dice «Continuar» y no «Comenzar»:
+        # importa saber que lo que había escrito sigue ahí.
+        empezado = bool(assignment["en_plataforma"]
+                        and examen_mod.borrador(db, user["id"], aid))
     maxp = assignment["max_practicas"]
     abierta, motivo_cierre = ventana_entrega(assignment)
+    if not course["active"]:
+        # La cursada terminó: se consulta, no se entrega. Se dice por el mismo camino que
+        # el plazo vencido para que la pantalla no tenga que aprender un estado más.
+        abierta = False
+        motivo_cierre = "Esta cursada está cerrada."
     # En el multiple choice se responde marcando la opción, en la misma lista de preguntas.
-    # Solo mientras se pueda entregar: después esa lista vuelve a ser algo para leer.
-    respondible = bool(assignment["tipo"] == "choice" and not final and abierta and habilitada)
+    # Solo mientras se pueda entregar: después esa lista vuelve a ser algo para leer. Si se
+    # rinde en la plataforma, no se responde acá: se responde en el espacio del examen.
+    respondible = bool(assignment["tipo"] == "choice" and not final and abierta and habilitada
+                       and not assignment["en_plataforma"])
     return render(
         request, "panel.html", cfg=cfg, course=course, assignment=assignment,
         usadas=usadas, maxp=maxp, restantes=max(0, maxp - usadas), final=final,
         entregas=entregas, items=items, puntaje_total=items_puntaje_total(items),
         grupo=grupo, companeros=companeros, grupo_cerrado=grupo_cerrado,
         ventana_abierta=abierta, motivo_cierre=motivo_cierre,
-        respondible=respondible, ultima=ultima,
+        respondible=respondible, ultima=ultima, empezado=empezado,
     )
 
 
@@ -898,6 +973,236 @@ async def panel_grupo(request: Request, aid: int):
             )
         nombres = ", ".join(u["full_name"] for u in companeros)
     return redirect(volver, msg=f"Grupo armado con {nombres}. El cupo y la devolución son del grupo.")
+
+
+# ---------------------------------------------------------------- examen en plataforma
+#
+# El desarrollo del examen ocurre acá adentro: se escribe o se marca en una pantalla
+# propia, con reloj, y lo escrito se guarda en el servidor mientras se trabaja. La entrega
+# se arma con lo guardado y sigue el mismo circuito que cualquier otra: no hay un camino
+# paralelo de corrección ni de calificación, solo otra forma de llegar.
+
+
+def _examen_contexto(db, user, aid):
+    """(assignment, course, items) si esta persona puede rendir acá, o (None, None, None)."""
+    assignment = get_assignment(db, aid)
+    if not assignment or not assignment["active"] or not assignment["en_plataforma"]:
+        return None, None, None
+    course = get_edition(db, assignment["edition_id"])
+    if not course or not is_enrolled(db, user["id"], course["id"]):
+        return None, None, None
+    return assignment, course, assignment_items(db, aid)
+
+
+@app.get("/examen/{aid}", response_class=HTMLResponse)
+def examen(request: Request, aid: int):
+    """El espacio donde se rinde."""
+    user, resp = _require(request, "student")
+    if resp:
+        return resp
+    with get_db() as db:
+        assignment, course, items = _examen_contexto(db, user, aid)
+        if not assignment:
+            return redirect("/panel")
+        volver = f"/panel/instancia/{aid}"
+        final = final_activa(db, user["id"], aid)
+        if final:
+            return redirect(f"/entrega/{final['id']}")
+        if not course["active"]:
+            return redirect(volver, err="Esta cursada está cerrada.")
+        if not inscripcion_habilitada(db, user["id"], course["id"]):
+            return redirect(volver, err="Tu inscripción a esta cursada está deshabilitada.")
+        borrador = examen_mod.borrador(db, user["id"], aid)
+        cfg = assignment_cfg(db, course, assignment)
+
+    ahora, cierre = ahora_local(), momento_cierre(assignment)
+    apertura = momento_apertura(assignment)
+    if apertura and ahora < apertura:
+        return redirect(volver, err=f"Este examen abre el {fecha_corta(assignment['fecha_apertura'])}.")
+
+    # Cerró mientras no estaba mirando: lo que vale es lo que quedó guardado en el
+    # servidor, y se entrega ahora aunque vuelva al día siguiente. Si no alcanzó a
+    # escribir nada, no se le inventa una entrega en blanco.
+    if cierre and ahora > cierre:
+        respuestas = examen_mod.respuestas_de(borrador)
+        if borrador and examen_mod.hay_algo(items, respuestas, assignment["tipo"]):
+            return _examen_cerrar(user, assignment, course, items, cfg, respuestas, vencido=True)
+        return redirect(volver, err=f"El plazo venció el {fecha_corta(assignment['fecha_cierre'])}.")
+
+    with get_db() as db:
+        borrador = examen_mod.abrir(db, user["id"], aid)
+    return render(
+        request, "examen.html", assignment=assignment, course=course, items=items,
+        puntaje_total=items_puntaje_total(items),
+        respuestas=examen_mod.respuestas_de(borrador),
+        cierre=cierre, ahora=ahora, guardado=borrador["guardado_at"],
+    )
+
+
+def _examen_abierto(db, user, aid):
+    """El examen en curso de esta persona, o None si no lo tiene abierto.
+
+    Lo comparten el guardado y el registro de incidentes: los dos llegan por detrás de la
+    pantalla y ninguno puede confiar en que la pantalla siga siendo la que se sirvió.
+    """
+    assignment, course, items = _examen_contexto(db, user, aid)
+    if not assignment or not course["active"]:
+        return None, None, None
+    if not inscripcion_habilitada(db, user["id"], course["id"]):
+        return None, None, None
+    if final_activa(db, user["id"], aid) or not examen_mod.borrador(db, user["id"], aid):
+        return None, None, None
+    return assignment, course, items
+
+
+@app.post("/examen/{aid}/guardar")
+async def examen_guardar(request: Request, aid: int):
+    """Autoguardado de lo escrito. Lo llama la pantalla sola, cada pocos segundos."""
+    user, resp = _require(request, "student")
+    if resp:
+        return JSONResponse({"ok": False}, status_code=401)
+    datos = await request.json()
+    with get_db() as db:
+        assignment, _course, items = _examen_abierto(db, user, aid)
+        if not assignment:
+            return JSONResponse({"ok": False, "motivo": "cerrado"}, status_code=409)
+        cierre = momento_cierre(assignment)
+        # Después del cierre se acepta un rato más: entre que se teclea la última palabra
+        # y que el guardado llega, pasan segundos, y perderlos sería perder respuestas.
+        if cierre and ahora_local() > _mas_gracia(cierre):
+            return JSONResponse({"ok": False, "motivo": "vencido"}, status_code=409)
+        respuestas = {}
+        validos = {it["orden"] for it in items}
+        for k, v in (datos.get("respuestas") or {}).items():
+            try:
+                n = int(k)
+            except (TypeError, ValueError):
+                continue
+            if n in validos:
+                respuestas[n] = str(v)[:20000]
+        examen_mod.guardar(db, user["id"], aid, respuestas)
+    return JSONResponse({"ok": True, "guardado": utcnow()})
+
+
+@app.post("/examen/{aid}/incidente")
+async def examen_incidente(request: Request, aid: int):
+    """Deja constancia de algo que pasó mientras rendía, y devuelve qué avisarle."""
+    user, resp = _require(request, "student")
+    if resp:
+        return JSONResponse({"ok": False}, status_code=401)
+    datos = await request.json()
+    tipo = str(datos.get("tipo") or "")
+    detalle = datos.get("detalle") if isinstance(datos.get("detalle"), dict) else {}
+    with get_db() as db:
+        assignment, _course, _items = _examen_abierto(db, user, aid)
+        if not assignment or tipo not in examen_mod.TIPOS:
+            return JSONResponse({"ok": False}, status_code=409)
+        cuantas = examen_mod.registrar(db, user["id"], aid, tipo, detalle)
+    return JSONResponse({"ok": True, "aviso": _aviso_incidente(tipo, cuantas)})
+
+
+def _aviso_incidente(tipo: str, cuantas: int) -> str:
+    """Lo que se le dice a quien rinde, en el momento. Sin acusar y sin esconder nada."""
+    veces = "" if cuantas <= 1 else f" (van {cuantas})"
+    if tipo == "salida":
+        que = f"Quedó registrado que saliste de la pantalla del examen{veces}."
+    else:
+        que = f"Quedó registrado que pegaste texto desde otro lado{veces}."
+    return que + " El equipo docente lo va a ver junto a tu entrega."
+
+
+@app.post("/examen/{aid}/entregar")
+async def examen_entregar(request: Request, aid: int):
+    """Entrega lo guardado. La pantalla también la llama sola cuando se acaba el tiempo."""
+    user, resp = _require(request, "student")
+    if resp:
+        return redirect("/login")
+    with get_db() as db:
+        assignment, course, items = _examen_contexto(db, user, aid)
+        if not assignment:
+            return redirect("/panel")
+        volver = f"/panel/instancia/{aid}"
+        if final_activa(db, user["id"], aid):
+            return redirect(volver, err="Ya tenés una entrega registrada en esta instancia.")
+        if not course["active"] or not inscripcion_habilitada(db, user["id"], course["id"]):
+            return redirect(volver, err="No podés entregar en esta cursada.")
+        borrador = examen_mod.borrador(db, user["id"], aid)
+        cfg = assignment_cfg(db, course, assignment)
+    respuestas = examen_mod.respuestas_de(borrador)
+    if not borrador or not examen_mod.hay_algo(items, respuestas, assignment["tipo"]):
+        return redirect(f"/examen/{aid}", err="Todavía no hay nada escrito para entregar.")
+    cierre = momento_cierre(assignment)
+    if cierre and ahora_local() > _mas_gracia(cierre):
+        # Vencido: se entrega igual, porque lo guardado es del estudiante y ya estaba
+        # antes de la hora. Lo que no se acepta después del cierre es escribir más.
+        return _examen_cerrar(user, assignment, course, items, cfg, respuestas, vencido=True)
+    return _examen_cerrar(user, assignment, course, items, cfg, respuestas, vencido=False)
+
+
+def _mas_gracia(cierre: str) -> str:
+    """El cierre más los segundos de gracia, en el mismo formato de texto comparable."""
+    from datetime import timedelta
+    momento = datetime.strptime(cierre, "%Y-%m-%dT%H:%M")
+    return (momento + timedelta(seconds=examen_mod.GRACIA_SEGUNDOS)).strftime("%Y-%m-%dT%H:%M")
+
+
+def _examen_cerrar(user, assignment, course, items, cfg, respuestas, vencido: bool):
+    """Convierte lo guardado en una entrega y la hace pasar por el circuito de siempre."""
+    aid = assignment["id"]
+    tipo = assignment["tipo"]
+    marcadas = examen_mod.marcadas_de(items, respuestas) if tipo == "choice" else None
+    work_text = ("\n".join(f"{n}-{marcadas[n]}" for n in sorted(marcadas)) if marcadas
+                 else examen_mod.texto_de(items, respuestas))
+    kind = "practica" if assignment["max_practicas"] else "final"
+
+    tele, nota_calculada, niveles = {}, None, []
+    try:
+        if tipo == "choice":
+            feedback, model, tele, nota_calculada = _corregir_choice(
+                cfg, first_name(user["full_name"]), work_text, marcadas)
+        else:
+            feedback, model, tele = generate_feedback(
+                cfg, first_name(user["full_name"]), user["profile"] or "", work_text, kind,
+                False, [])
+        feedback, niveles = separar_niveles(feedback, criterios_de(cfg.get("rubrica", "")))
+        status = "pendiente" if kind == "final" else "ok"
+        error = ""
+    except LLMError as exc:
+        if kind != "final":
+            return redirect(f"/examen/{aid}", err=f"No se pudo generar la devolución. {exc}")
+        feedback, model, status, error = "", "", "pendiente", str(exc)
+
+    with get_db() as db:
+        cur = db.execute(
+            "INSERT INTO submissions (user_id, assignment_id, kind, status, original_filename,"
+            " work_text, text_chars, truncated, ai_feedback_md, model_used, error, created_at,"
+            " cfg_snapshot, tokens_in, tokens_out, latencia_ms, finish_reason, nota, niveles)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (user["id"], aid, kind, status, "rendido en la plataforma", work_text,
+             len(work_text), feedback, model, error, utcnow(),
+             json.dumps(cfg, ensure_ascii=False), tele.get("tokens_in"), tele.get("tokens_out"),
+             tele.get("latencia_ms"), tele.get("finish_reason"), nota_calculada,
+             json.dumps(niveles, ensure_ascii=False) if niveles else ""),
+        )
+        sid = cur.lastrowid
+        examen_mod.colgar_de_entrega(db, user["id"], aid, sid)
+        if kind == "final":
+            examen_mod.borrar(db, user["id"], aid)
+
+    if kind != "final":
+        return redirect(f"/entrega/{sid}")
+    firma_sola = not assignment["requiere_revision"] and not error
+    nota = _asentar_nota(sid, cfg, firma_sola)
+    entregada = ("Se cerró tu examen al vencer el tiempo, con lo que tenías escrito."
+                 if vencido else "Examen entregado.")
+    if error:
+        return redirect(f"/entrega/{sid}", msg=(
+            entregada + " No se pudo generar la devolución en este momento: la va a revisar "
+            "el equipo docente."))
+    if firma_sola:
+        cuanto = f" Tu calificación es {_num_nota(nota)}." if nota is not None else ""
+        return redirect(f"/entrega/{sid}", msg=entregada + cuanto)
+    return redirect(f"/entrega/{sid}", msg=entregada + " Queda en revisión del equipo docente.")
 
 
 @app.post("/entregar")
@@ -1045,7 +1350,10 @@ async def entregar(
         error = ""
     except LLMError as exc:
         if kind == "final":
-            # la final entra igual a la cola docente, sin propuesta de la IA
+            # La entrega se registra igual —perderla por un fallo del modelo sería mucho
+            # peor—, pero queda esperando a una persona, aunque la instancia no lleve
+            # firma: cerrarla sola dejaría una entrega aprobada con la devolución vacía y
+            # sin que nadie se entere.
             feedback, model, status, error = "", "", "pendiente", str(exc)
         else:
             return redirect(back, err=f"No se pudo generar la devolución (no se consumió tu intento). {exc}")
@@ -1087,12 +1395,16 @@ async def entregar(
     if kind == "final":
         # Es la única entrega que admite la instancia, así que el circuito se cierra acá
         # mismo: se calcula la calificación y, si nadie tiene que firmarla, queda firme.
-        firma_sola = not assignment["requiere_revision"]
+        firma_sola = not assignment["requiere_revision"] and not error
         nota = _asentar_nota(sid, cfg, firma_sola)
         if firma_sola:
             cuanto = f" Tu calificación es {_num_nota(nota)}." if nota is not None else ""
             return redirect(f"/entrega/{sid}", msg=(
                 "Entrega registrada." + cuanto + " Esta instancia no lleva revisión docente."))
+        if error:
+            return redirect(f"/entrega/{sid}", msg=(
+                "Entrega registrada, pero no se pudo generar la devolución. La va a revisar "
+                "el equipo docente."))
         return redirect(f"/entrega/{sid}", msg="Entrega definitiva registrada: queda en revisión del equipo docente.")
     return redirect(f"/entrega/{sid}")
 
@@ -1235,6 +1547,7 @@ def entrega(request: Request, sid: int):
             "SELECT * FROM questions WHERE submission_id = ? ORDER BY id", (sid,)
         ).fetchall()
         owner = db.execute("SELECT * FROM users WHERE id = ?", (sub["user_id"],)).fetchone()
+        incidentes = _incidentes(db, sub)
         # primera vez que el estudiante abre su devolución: dice si la leyó, y cuándo
         if user["role"] == "student" and not sub["first_viewed_at"] and sub["ai_feedback_md"]:
             db.execute("UPDATE submissions SET first_viewed_at = ? WHERE id = ?", (utcnow(), sub["id"]))
@@ -1256,7 +1569,7 @@ def entrega(request: Request, sid: int):
         request, "entrega.html", sub=sub, owner=owner, course=course, assignment=assignment,
         qs=qs, maxq=maxq, q_restantes=max(0, maxq - len(qs)), puede_preguntar=puede_preguntar,
         puede_promover=puede_promover, niveles=_niveles(sub),
-        detalle_nota=_detalle_nota(sub),
+        detalle_nota=_detalle_nota(sub), incidentes=incidentes,
     )
 
 
@@ -1531,10 +1844,11 @@ def admin_final(request: Request, sid: int):
         if not sub or sub["kind"] != "final" or not can_access_edition(db, user, course["id"]):
             return redirect("/admin/entregas")
         owner = db.execute("SELECT * FROM users WHERE id = ?", (sub["user_id"],)).fetchone()
+        incidentes = _incidentes(db, sub)
     return render(
         request, "admin_final.html", sub=sub, owner=owner, course=course,
         assignment=assignment, repo_leido=_repo_leido(sub), niveles=_niveles(sub),
-        detalle_nota=_detalle_nota(sub),
+        detalle_nota=_detalle_nota(sub), incidentes=incidentes,
         smtp_ok=smtp_configured(),
     )
 
@@ -2034,7 +2348,7 @@ def admin_instancia_editar(request: Request, aid: int):
 def admin_instancia_editar_post(
     request: Request, aid: int, name: str = Form(...), tipo: str = Form(""),
     requiere_revision: str = Form(""), pide_propuesta: str = Form(""),
-    pide_repo: str = Form(""), usa_vision: str = Form(""),
+    pide_repo: str = Form(""), usa_vision: str = Form(""), en_plataforma: str = Form(""),
     modalidad: str = Form("digital"), fecha_apertura: str = Form(""), fecha_cierre: str = Form(""),
 ):
     user, resp = _require(request, *STAFF)
@@ -2070,11 +2384,12 @@ def admin_instancia_editar_post(
             modalidad = assignment["modalidad"]
         # Si acá cambió el tipo, los cupos lo siguen: un trabajo que pasa a ser parcial
         # no se queda con las tres versiones mejorables que tenía.
+        plataforma, aviso_plataforma = _en_plataforma(tipo, en_plataforma, fecha_cierre)
         db.execute(
             "UPDATE assignments SET name = ?, tipo = ?, requiere_revision = ?, pide_propuesta = ?,"
-            " pide_repo = ?, usa_vision = ?, modalidad = ?, fecha_apertura = ?,"
+            " pide_repo = ?, usa_vision = ?, en_plataforma = ?, modalidad = ?, fecha_apertura = ?,"
             " fecha_cierre = ?, max_practicas = ?, max_preguntas = ? WHERE id = ?",
-            (name, tipo, revision, propuesta, repo, vision, modalidad,
+            (name, tipo, revision, propuesta, repo, vision, plataforma, modalidad,
              fecha_apertura.strip(), fecha_cierre.strip(),
              circ.ajustar(tipo, "practicas", assignment["max_practicas"]),
              circ.ajustar(tipo, "preguntas", assignment["max_preguntas"]), aid),
@@ -2091,14 +2406,15 @@ def admin_instancia_editar_post(
                 f" Quedó guardado material del tipo anterior ({' y '.join(guardado)}): no se muestra, "
                 "pero reaparece si volvés a ese tipo." if guardado else ""
             )
-    return redirect(f"/admin/instancias/{aid}", msg="Nombre y tipo actualizados." + aviso)
+    return redirect(f"/admin/instancias/{aid}",
+                    msg="Nombre y tipo actualizados." + aviso + aviso_plataforma)
 
 
 @app.post("/admin/cursos/{cid}/instancias")
 def admin_instancia_crear(
     request: Request, cid: int, name: str = Form(...), tipo: str = Form("abierto"),
     requiere_revision: str = Form(""), pide_propuesta: str = Form(""),
-    pide_repo: str = Form(""), usa_vision: str = Form(""),
+    pide_repo: str = Form(""), usa_vision: str = Form(""), en_plataforma: str = Form(""),
     modalidad: str = Form("digital"), fecha_apertura: str = Form(""), fecha_cierre: str = Form(""),
 ):
     user, resp = _require(request, *STAFF)
@@ -2117,9 +2433,9 @@ def admin_instancia_crear(
             return redirect(f"/admin/cursos/{cid}/instancias/nueva", err=f"Ya existe una instancia «{name}» en este curso.")
         cur = db.execute(
             "INSERT INTO assignments (edition_id, name, tipo, active, requiere_revision,"
-            " pide_propuesta, pide_repo, usa_vision, modalidad, fecha_apertura, fecha_cierre,"
-            " max_practicas, max_preguntas, created_at)"
-            " VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " pide_propuesta, pide_repo, usa_vision, en_plataforma, modalidad, fecha_apertura,"
+            " fecha_cierre, max_practicas, max_preguntas, created_at)"
+            " VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (cid, name, tipo,
              # el multiple choice siempre pasa por una persona: la casilla viaja
              # deshabilitada desde el formulario y no llega marcada
@@ -2127,6 +2443,7 @@ def admin_instancia_crear(
              1 if (tipo == "abierto" and pide_propuesta == "1") else 0,
              1 if (tipo == "abierto" and pide_repo == "1") else 0,
              1 if usa_vision == "1" else 0,
+             _en_plataforma(tipo, en_plataforma, fecha_cierre)[0],
              modalidad if modalidad in ("digital", "papel", "ambos") else "digital",
              fecha_apertura.strip(), fecha_cierre.strip(),
              circ.defectos(tipo)["practicas"], circ.defectos(tipo)["preguntas"], utcnow()),
@@ -2285,10 +2602,11 @@ async def admin_edicion_duplicar_post(request: Request, cid: int):
         # Sin esto un docente crearía una cursada que después no puede ver.
         if user["role"] == "docente":
             db.execute("INSERT OR IGNORE INTO course_teachers (edition_id, user_id) VALUES (?, ?)",
-                       (eid, user["id"]))
+                       (nueva, user["id"]))
         for uid in form.getlist("docentes"):
             if db.execute("SELECT 1 FROM users WHERE id = ? AND role IN ('docente', 'admin')", (int(uid),)).fetchone():
-                db.execute("INSERT INTO course_teachers (edition_id, user_id) VALUES (?, ?)", (nueva, int(uid)))
+                db.execute("INSERT OR IGNORE INTO course_teachers (edition_id, user_id) VALUES (?, ?)",
+                           (nueva, int(uid)))
 
     estado = "activas" if activar else "en borrador"
     return redirect(
@@ -2341,7 +2659,7 @@ def admin_instancia_nueva_global(request: Request, curso: str | None = None):
 def admin_instancia_crear_global(
     request: Request, curso_id: int = Form(...), name: str = Form(...), tipo: str = Form("abierto"),
     requiere_revision: str = Form(""), pide_propuesta: str = Form(""),
-    pide_repo: str = Form(""), usa_vision: str = Form(""),
+    pide_repo: str = Form(""), usa_vision: str = Form(""), en_plataforma: str = Form(""),
     modalidad: str = Form("digital"), fecha_apertura: str = Form(""), fecha_cierre: str = Form(""),
 ):
     user, resp = _require(request, *STAFF)
@@ -2360,9 +2678,9 @@ def admin_instancia_crear_global(
             return redirect(f"/admin/instancias/nueva?curso={curso_id}", err=f"Ya existe una instancia «{name}» en ese curso.")
         cur = db.execute(
             "INSERT INTO assignments (edition_id, name, tipo, active, requiere_revision,"
-            " pide_propuesta, pide_repo, usa_vision, modalidad, fecha_apertura, fecha_cierre,"
-            " max_practicas, max_preguntas, created_at)"
-            " VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " pide_propuesta, pide_repo, usa_vision, en_plataforma, modalidad, fecha_apertura,"
+            " fecha_cierre, max_practicas, max_preguntas, created_at)"
+            " VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (curso_id, name, tipo,
              # el multiple choice siempre pasa por una persona: la casilla viaja
              # deshabilitada desde el formulario y no llega marcada
@@ -2370,6 +2688,7 @@ def admin_instancia_crear_global(
              1 if (tipo == "abierto" and pide_propuesta == "1") else 0,
              1 if (tipo == "abierto" and pide_repo == "1") else 0,
              1 if usa_vision == "1" else 0,
+             _en_plataforma(tipo, en_plataforma, fecha_cierre)[0],
              modalidad if modalidad in ("digital", "papel", "ambos") else "digital",
              fecha_apertura.strip(), fecha_cierre.strip(),
              circ.defectos(tipo)["practicas"], circ.defectos(tipo)["preguntas"], utcnow()),
@@ -2597,14 +2916,14 @@ async def admin_instancia_post(request: Request, aid: int):
                      i["opciones"], i["puntaje"]),
                 )
         db.execute(
+            # `requiere_revision` y `pide_propuesta` NO se tocan acá: viven en la pantalla
+            # de identidad y este formulario no los envía. Tomarlos igual de `form` los
+            # ponía en cero en cada guardado, y una instancia con firma docente pasaba a
+            # cerrarse sola sin que nadie lo pidiera.
             "UPDATE assignments SET name = ?, active = ?, tipo = ?, consigna = ?, rubrica = ?, respuestas = ?,"
-            " prompt_extra = ?, max_practicas = ?, max_preguntas = ?, max_integrantes = ?,"
-            " pide_propuesta = ?, requiere_revision = ? WHERE id = ?",
+            " prompt_extra = ?, max_practicas = ?, max_preguntas = ?, max_integrantes = ? WHERE id = ?",
             (name, active, tipo, consigna, rubrica, respuestas,
-             (form.get("prompt_extra") or "").strip(), mp, mq, mi,
-             1 if (tipo == "abierto" and form.get("pide_propuesta") == "1") else 0,
-             # el multiple choice se corrige como final: siempre pasa por una persona
-             1 if (tipo == "choice" or form.get("requiere_revision") == "1") else 0, aid),
+             (form.get("prompt_extra") or "").strip(), mp, mq, mi, aid),
         )
     msg = "Instancia guardada."
     if extraidos:
@@ -2696,7 +3015,9 @@ async def admin_docentes_crear(request: Request):
         uid = cur.lastrowid
         for cid in form.getlist("cursos"):
             db.execute("INSERT INTO course_teachers (edition_id, user_id) VALUES (?, ?)", (int(cid), uid))
-    return redirect("/admin/docentes", msg=f"Docente {nombre} creado → usuario: {login_id} · contraseña: {password}")
+    return redirect("/admin/docentes", msg=(
+        f"Docente {nombre} creado → usuario: {login_id}. Todavía no tiene contraseña: "
+        "mandale el enlace desde su ficha para que elija la suya."))
 
 
 @app.get("/admin/docentes/{uid}", response_class=HTMLResponse)
@@ -2763,7 +3084,11 @@ async def admin_docente_post(request: Request, uid: int):
 # ---------------------------------------------------------------- staff: estudiantes
 
 def _crear_o_inscribir(db, edition_id: int, dni: str, nombre: str, email: str, profile: str = "") -> tuple[str, str]:
-    """Devuelve (resultado, dato): ('creado', password) | ('inscripto'|'ya_estaba', nombre) | ('error', motivo)."""
+    """Devuelve (resultado, dato): ('creado'|'inscripto'|'ya_estaba', nombre) | ('error', motivo).
+
+    La cuenta nace sin contraseña utilizable: su dueño elige la suya con el enlace que se
+    le manda al correo. Acá no hay ninguna credencial que devolver.
+    """
     if not dni.isdigit() or not (6 <= len(dni) <= 9):
         return "error", f"DNI inválido ({dni})"
     row = db.execute("SELECT * FROM users WHERE login = ?", (dni,)).fetchone()
@@ -2781,7 +3106,7 @@ def _crear_o_inscribir(db, edition_id: int, dni: str, nombre: str, email: str, p
         (dni, claves.clave_inutilizable(), nombre, email, profile, utcnow()),
     )
     enroll(db, cur.lastrowid, edition_id)
-    return "creado", password
+    return "creado", nombre
 
 
 def _alta_estudiantes(db, edition_id: int, lines: list[str]):
@@ -2801,7 +3126,7 @@ def _alta_estudiantes(db, edition_id: int, lines: list[str]):
         email = parts[2] if len(parts) > 2 else ""
         res, dato = _crear_o_inscribir(db, edition_id, dni, nombre, email)
         if res == "creado":
-            creados.append((nombre, dato))
+            creados.append(dato)
         elif res == "inscripto":
             inscriptos.append(dato)
         elif res == "ya_estaba":
@@ -2902,7 +3227,8 @@ def admin_alta(
     if res == "creado":
         return redirect(
             f"/admin/estudiantes?curso={curso_id}",
-            msg=f"{full_name} dado/a de alta → DNI: {dni} · contraseña: {dato}",
+            msg=(f"{full_name} dado/a de alta → usuario: {dni}. Todavía no tiene contraseña: "
+                 "mandale el enlace desde su ficha para que elija la suya."),
         )
     if res == "inscripto":
         return redirect(f"/admin/estudiantes?curso={curso_id}", msg=f"{dato} ya existía: quedó inscripto/a en el curso.")

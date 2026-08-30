@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% from "_ui.html" import info %}
+{% block title %}{{ assignment.name }} · rindiendo{% endblock %}
+{% block content %}
+{# La pantalla del examen es deliberadamente sobria: sin barra de formato, sin menús, sin
+   nada que invite a irse. Lo único fijo arriba es el reloj y el estado del guardado, que
+   son las dos cosas que alguien rindiendo necesita saber en todo momento. #}
+<div class="examen-cab" data-examen="{{ assignment.id }}"
+     data-cierre="{{ cierre }}" data-ahora="{{ ahora }}" data-base="{{ base }}">
+  <div>
+    <h1>{{ assignment.name }}</h1>
+    <p class="muted small">{{ course.materia }} · {{ items|length }} pregunta{{ 's' if items|length != 1 }}
+      · {{ puntaje_total|round(2)|int if puntaje_total == puntaje_total|round(0) else puntaje_total }} puntos</p>
+  </div>
+  <div class="examen-estado">
+    {% if cierre %}<span class="reloj" id="reloj" title="Tiempo restante">—</span>{% endif %}
+    <span class="muted small" id="guardado">Guardado</span>
+  </div>
+</div>
+
+<div class="flash warn" id="aviso-incidente" hidden></div>
+<div class="flash bad" id="aviso-conexion" hidden>Sin conexión: lo que escribas se guarda en cuanto vuelva.</div>
+
+{% if assignment.consigna %}
+<section class="card">
+  <h2>Consigna</h2>
+  <div class="prose" data-recortable>{{ assignment.consigna|md|safe }}</div>
+</section>
+{% endif %}
+
+<form method="post" action="{{ base }}/examen/{{ assignment.id }}/entregar" id="form-examen"
+      data-confirm="Vas a entregar tu examen con lo que tenés escrito. No vas a poder volver a entregar. ¿Confirmás?">
+  <ol class="preguntas examen-preguntas">
+    {% for it in items %}
+    <li>
+      <div class="prose">{{ it.enunciado|md|safe }}</div>
+      <span class="muted small">{{ it.puntaje|round(2)|int if it.puntaje == it.puntaje|round(0) else it.puntaje }} punto{{ '' if it.puntaje == 1 else 's' }}</span>
+      {% if it.opciones %}
+        <ul class="opciones-elegir">
+          {% for opcion in it.opciones.splitlines() | map('trim') | select | list %}
+          {% set letra = 'abcdefgh'[loop.index0] %}
+          <li><label>
+            <input type="radio" name="resp_{{ it.orden }}" value="{{ letra }}" data-orden="{{ it.orden }}"
+                   {{ 'checked' if respuestas.get(it.orden) == letra }}>
+            <span class="opcion-letra">{{ letra }})</span> {{ opcion }}
+          </label></li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <textarea name="resp_{{ it.orden }}" data-orden="{{ it.orden }}" rows="6"
+                  class="respuesta" placeholder="Escribí tu respuesta acá…">{{ respuestas.get(it.orden, '') }}</textarea>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ol>
+
+  <div class="examen-pie">
+    <button type="submit" class="btn accent">Entregar el examen</button>
+    <span class="muted small">Se entrega lo que esté guardado. Si se acaba el tiempo, se entrega solo.</span>
+  </div>
+</form>
+
+<p class="muted small examen-nota">Mientras rendís queda registrado si salís de esta pantalla o si pegás
+texto desde otro lado, y el equipo docente lo ve junto a tu entrega. No se registra nada más, y nada
+de eso te bloquea: podés seguir trabajando igual.</p>
+
+<script src="{{ base }}/static/examen.js"></script>
+{% endblock %}

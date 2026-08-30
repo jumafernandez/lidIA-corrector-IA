@@ -14,7 +14,6 @@ Lo que se trae es material del estudiante, igual que su informe: entra al prompt
 como objeto de evaluación y nunca como instrucciones.
 """
 import io
-import json
 import re
 import urllib.error
 import urllib.request

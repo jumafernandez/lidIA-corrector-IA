@@ -1,0 +1,24 @@
+{# Lo que quedó registrado mientras alguien rendía en la plataforma.
+
+   Se muestra igual a quien corrige y a quien rindió: el aviso ya se dio en el momento, y
+   esconderlo después sería peor que no registrarlo. Es una señal para que la mire una
+   persona —nadie pierde puntos por esto solo—, así que se cuenta sin adjetivos. #}
+{% macro incidentes(datos) %}
+{% if datos.hay %}
+<section class="card incidentes">
+  <h2>Mientras rendía</h2>
+  <p>{{ datos.frase }}</p>
+  <details>
+    <summary class="muted">Ver el detalle</summary>
+    <ul>
+      {% for i in datos.filas %}
+      <li>{{ i.created_at|fecha }} hs ·
+        {{ 'salió de la pantalla' if i.tipo == 'salida' else 'pegó texto desde otro lado' }}</li>
+      {% endfor %}
+    </ul>
+  </details>
+  <p class="muted small">Que esto quede anotado no significa que haya hecho nada indebido: puede
+  haber cambiado de ventana por cualquier motivo. Es información para que la valore el equipo docente.</p>
+</section>
+{% endif %}
+{% endmacro %}

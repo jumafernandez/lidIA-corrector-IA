@@ -155,6 +155,35 @@ CREATE TABLE IF NOT EXISTS config (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+
+-- Lo que alguien lleva escrito de un examen que se rinde en la plataforma. Vive en el
+-- servidor y no en el navegador a propósito: un corte de luz o una pestaña cerrada no
+-- pueden costar el examen, y quien se queda sin máquina sigue desde otra donde estaba.
+CREATE TABLE IF NOT EXISTS borradores (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    assignment_id INTEGER NOT NULL REFERENCES assignments(id) ON DELETE CASCADE,
+    respuestas TEXT NOT NULL DEFAULT '{}',   -- JSON {numero de pregunta: respuesta}
+    iniciado_at TEXT NOT NULL,
+    guardado_at TEXT NOT NULL,
+    UNIQUE (user_id, assignment_id)
+);
+
+-- Lo que pasó mientras alguien rendía: que se fue de la pantalla, que pegó texto. No
+-- bloquea nada —una página web no puede sellar la máquina y no vamos a fingir que sí—:
+-- se registra, se le avisa a quien rinde en el momento, y lo ve el equipo docente junto
+-- a la entrega. Es una señal para que la mire una persona, no un veredicto.
+CREATE TABLE IF NOT EXISTS incidentes (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    assignment_id INTEGER NOT NULL REFERENCES assignments(id) ON DELETE CASCADE,
+    submission_id INTEGER REFERENCES submissions(id) ON DELETE CASCADE,
+    tipo TEXT NOT NULL,                      -- 'salida' | 'pegado'
+    detalle TEXT NOT NULL DEFAULT '{}',      -- JSON: segundos afuera, caracteres pegados
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_incidentes_entrega ON incidentes(submission_id);
+CREATE INDEX IF NOT EXISTS idx_incidentes_persona ON incidentes(user_id, assignment_id);
 """
 
 # Configuración global (transversal). La consigna, rúbrica, indicaciones y cupos
@@ -521,6 +550,25 @@ def init_db():
             db.execute("UPDATE course_editions SET anio = ? WHERE id = ?",
                        (_anio_inicial(fila), fila["id"]))
 
+        cols = {r["name"] for r in db.execute("PRAGMA table_info(assignments)")}
+        if "en_plataforma" not in cols:
+            # 026 — La instancia se rinde ACÁ: el estudiantado escribe o marca en un
+            # espacio de examen, con reloj, guardado en el servidor y registro de lo que
+            # pasa mientras rinde. Sin esto, el examen se desarrolla afuera y lo único
+            # que ve el sistema es el archivo que llega al final.
+            db.execute("ALTER TABLE assignments ADD COLUMN en_plataforma INTEGER NOT NULL DEFAULT 0")
+
+        # Sesiones de usuarios que ya no existen. La clave foránea las borraría sola, pero
+        # las que quedaron son de antes de que existiera, o de un borrado hecho con las
+        # claves apagadas. No molestan, salvo que ensucian cualquier revisión de integridad
+        # que se haga después: una comprobación que siempre da resultados deja de servir
+        # para avisar cuando pasa algo de verdad.
+        sueltas = db.execute(
+            "DELETE FROM sessions WHERE user_id NOT IN (SELECT id FROM users)").rowcount
+        if sueltas:
+            logging.getLogger("lidia").info(
+                "Se borraron %s sesiones de usuarios que ya no existen.", sueltas)
+
         for key, value in DEFAULT_CONFIG.items():
             db.execute("INSERT OR IGNORE INTO config (key, value) VALUES (?, ?)", (key, value))
 
@@ -697,6 +745,25 @@ def ventana_entrega(assignment) -> tuple:
     if hasta and ahora > hasta:
         return False, f"El plazo de entrega venció el {fecha_corta(assignment['fecha_cierre'])}."
     return True, ""
+
+
+def momento_apertura(assignment) -> str:
+    """Cuándo abre, como «YYYY-MM-DDTHH:MM». Vacío = sin restricción."""
+    return _momento((assignment["fecha_apertura"] or "").strip(), inicio=True)
+
+
+def momento_cierre(assignment) -> str:
+    """Cuándo cierra, como «YYYY-MM-DDTHH:MM». Vacío = sin plazo.
+
+    Lo usa el reloj del examen en plataforma: la cuenta regresiva se ancla a esto y al
+    reloj del servidor, nunca al de la máquina de quien rinde, que puede estar corrido.
+    """
+    return _momento((assignment["fecha_cierre"] or "").strip(), inicio=False)
+
+
+def ahora_local() -> str:
+    """El momento actual en el mismo formato que las fechas de las instancias."""
+    return datetime.now(AR_TZ).strftime("%Y-%m-%dT%H:%M")
 
 
 def _momento(valor: str, inicio: bool) -> str:

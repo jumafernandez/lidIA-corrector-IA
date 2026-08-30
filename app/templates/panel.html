@@ -141,7 +141,13 @@
   vuelve a corregir ni se sube de nuevo.</p>
   {% endif %}
 
-  {% if user.active and ventana_abierta and (unica or restantes > 0) %}
+  {% if assignment.en_plataforma %}
+  {# Se rinde acá adentro: no hay nada que subir, se entra al espacio del examen. #}
+    {% if user.active and ventana_abierta %}
+    <p><a class="btn accent" href="{{ base }}/examen/{{ assignment.id }}">{{ 'Continuar el examen' if empezado else 'Comenzar el examen' }}</a></p>
+    <p class="muted small">{% if empezado %}Lo que venías escribiendo está guardado: seguís donde lo dejaste.{% else %}Vas a entrar a la pantalla del examen, con las preguntas y el reloj. Lo que escribas se guarda solo.{% endif %}</p>
+    {% endif %}
+  {% elif user.active and ventana_abierta and (unica or restantes > 0) %}
   {# El id lo usan las opciones del multiple choice, que viven arriba en la lista de
      preguntas y se asocian a este formulario con form=. #}
   <form id="form-entrega" method="post" action="{{ base }}/entregar" enctype="multipart/form-data"

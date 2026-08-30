@@ -492,7 +492,11 @@ def _salidas(outputs: list) -> str:
 
 # Etiquetas cuyo contenido no es del documento: el guion que lo hace andar y su estilo.
 # Un notebook exportado a HTML trae bastante de las dos cosas.
-IGNORADAS = {"script", "style", "head", "noscript", "meta", "link"}
+# Etiquetas cuyo CONTENIDO se descarta. Solo van las que abren y cierran: <meta> y <link>
+# no cierran nunca, así que sumaban al contador y no lo bajaban jamás, y a partir de ahí se
+# descartaba el documento entero. Tampoco hacían falta: no tienen texto adentro, y las que
+# viven en el encabezado ya quedan tapadas por «head».
+IGNORADAS = {"script", "style", "head", "noscript"}
 # Etiquetas que separan bloques: sin esto el texto sale todo pegado en un renglón.
 BLOQUES = {"p", "div", "br", "li", "tr", "h1", "h2", "h3", "h4", "h5", "h6",
            "pre", "blockquote", "section", "article", "td", "th"}

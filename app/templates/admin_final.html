@@ -3,6 +3,7 @@
 {% block title %}Revisar entrega definitiva{% endblock %}
 {% from "_niveles.html" import niveles as tira_niveles %}
 {% from "_nota.html" import detalle_nota as bloque_nota %}
+{% from "_incidentes.html" import incidentes as incidentes_bloque %}
 {% block content %}
 <p class="crumbs"><a href="{{ base }}/admin/entregas">← Entregas</a></p>
 <h1>Entrega definitiva de {{ owner.full_name }}</h1>
@@ -42,6 +43,7 @@ y no evaluó la coherencia con lo propuesto: ese criterio lo tenés que mirar vo
 </details>
 {% endif %}
 {{ bloque_nota(sub.nota, detalle_nota, false) }}
+{{ incidentes_bloque(incidentes) }}
 
 {{ tira_niveles(niveles) }}
 

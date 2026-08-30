@@ -3,6 +3,7 @@
 {% block title %}Entrega{% endblock %}
 {% from "_niveles.html" import niveles as tira_niveles %}
 {% from "_nota.html" import detalle_nota as bloque_nota %}
+{% from "_incidentes.html" import incidentes as incidentes_bloque %}
 {% block content %}
 <p class="crumbs"><a href="{{ base }}{{ '/admin/entregas' if user.role in ('admin', 'docente') else '/panel/instancia/' ~ sub.assignment_id }}">← Volver</a></p>
 
@@ -105,6 +106,7 @@ la devolución no evalúa si el trabajo es coherente con lo que se propuso.</div
 {% endif %}
 
 {{ bloque_nota(sub.nota, detalle_nota, sub.status == 'aprobada') }}
+{{ incidentes_bloque(incidentes) }}
 
 {{ tira_niveles(niveles) }}
 

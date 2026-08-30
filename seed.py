@@ -13,7 +13,7 @@ import os
 import sys
 
 from app import auth
-from app.db import enroll, get_db, init_db, utcnow
+from app.db import anio_actual, enroll, get_db, init_db, utcnow
 
 ADMIN_LOGIN = os.environ.get("LIDIA_ADMIN_LOGIN", "admin")
 ADMIN_NAME = os.environ.get("LIDIA_ADMIN_NAME", "Coordinación")
@@ -273,11 +273,13 @@ def crear_admin(db) -> bool:
     if db.execute("SELECT 1 FROM users WHERE login = ?", (ADMIN_LOGIN,)).fetchone():
         print(f"Ya existe el usuario «{ADMIN_LOGIN}»; no se cambia nada.")
         return False
+    # La contraseña se genera, se muestra una vez y no se guarda en ninguna columna:
+    # nadie más que su dueño tiene por qué conocerla.
     password = auth.generate_password()
     db.execute(
-        "INSERT INTO users (login, password_hash, initial_password, full_name, email, role, active, created_at)"
-        " VALUES (?, ?, ?, ?, ?, 'admin', 1, ?)",
-        (ADMIN_LOGIN, auth.hash_password(password), password, ADMIN_NAME, ADMIN_EMAIL, utcnow()),
+        "INSERT INTO users (login, password_hash, full_name, email, role, active, created_at)"
+        " VALUES (?, ?, ?, ?, 'admin', 1, ?)",
+        (ADMIN_LOGIN, auth.hash_password(password), ADMIN_NAME, ADMIN_EMAIL, utcnow()),
     )
     print(f"Coordinación creada → usuario: {ADMIN_LOGIN} · contraseña: {password}")
     print("Anotala ahora: se muestra una sola vez. Cambiala al entrar, desde «Tu cuenta».")
@@ -291,9 +293,9 @@ def _usuario(db, login, nombre, rol, email=""):
         return fila["id"], None
     password = auth.generate_password()
     uid = db.execute(
-        "INSERT INTO users (login, password_hash, initial_password, full_name, email, role, active, created_at)"
-        " VALUES (?, ?, ?, ?, ?, ?, 1, ?)",
-        (login, auth.hash_password(password), password, nombre, email, rol, utcnow()),
+        "INSERT INTO users (login, password_hash, full_name, email, role, active, created_at)"
+        " VALUES (?, ?, ?, ?, ?, 1, ?)",
+        (login, auth.hash_password(password), nombre, email, rol, utcnow()),
     ).lastrowid
     return uid, password
 
@@ -311,9 +313,9 @@ def crear_demo(db):
             "INSERT INTO courses (name, active, created_at) VALUES (?, 1, ?)", (nombre, utcnow())
         ).lastrowid
         ediciones[clave] = db.execute(
-            "INSERT INTO course_editions (course_id, etiqueta, active, programa, fecha_inicio, fecha_fin,"
-            " created_at) VALUES (?, ?, 1, ?, ?, ?, ?)",
-            (cid, EDICION_DEMO, PROGRAMA_INTRO if clave == "intro" else "",
+            "INSERT INTO course_editions (course_id, anio, etiqueta, active, programa, fecha_inicio,"
+            " fecha_fin, created_at) VALUES (?, ?, ?, 1, ?, ?, ?, ?)",
+            (cid, anio_actual(), EDICION_DEMO, PROGRAMA_INTRO if clave == "intro" else "",
              FECHAS_DEMO.get(clave, ("", ""))[0], FECHAS_DEMO.get(clave, ("", ""))[1], utcnow()),
         ).lastrowid
         print(f"  · {nombre}")

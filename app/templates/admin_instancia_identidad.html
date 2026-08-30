@@ -99,6 +99,28 @@
       como instrucciones. Conviene dejar marcada la revisión humana en estas instancias.") }}
     </label>
 
+    <label style="font-weight: 400">
+      <input type="checkbox" name="en_plataforma" value="1" id="chk-plataforma"
+             {{ 'checked' if editando and assignment.en_plataforma }} style="width: auto; margin-right: 8px">
+      Se rinde en la plataforma
+      <span class="muted small" id="plataforma-solo-examen" hidden>· solo en examen escrito y multiple choice</span>
+      {{ info("El estudiantado rinde acá adentro: entra a un espacio con las preguntas, el reloj a la
+      vista y lo que escribe guardado en el servidor mientras trabaja. Si se corta la luz o cierra la
+      pestaña, vuelve a entrar y sigue donde estaba; al vencer la hora se entrega lo que haya guardado.
+
+      Necesita la hora de cierre cargada, que es de donde sale el reloj.
+
+      Sobre el control: una página web NO puede impedir que alguien cambie de aplicación, abra otra
+      pestaña o copie de otro lado, y este espacio no lo intenta. Lo que hace es dejar constancia de
+      dos cosas —que se fue de la pantalla del examen, y que pegó texto desde afuera—, avisarle a
+      quien rinde en el momento de que quedó registrado, y mostrártelo junto a la entrega. Es una
+      señal para que la mires vos, no una acusación ni un bloqueo.") }}
+    </label>
+    <div class="flash warn sangria" id="aviso-sin-cierre" hidden>
+      Para que se rinda en la plataforma hace falta la <strong>fecha y hora de cierre</strong>: de ahí
+      sale el reloj del examen y la entrega automática de lo escrito. Cargala abajo.
+    </div>
+
     <p style="margin: 18px 0 4px"><strong>Entrega</strong></p>
     <div class="grid2">
       <label>Cómo se entrega
@@ -170,7 +192,26 @@ function seguirTipo() {
   if (choice) chkRevision.checked = true;
   chkRevision.closest('label').style.opacity = choice ? '.55' : '';
   seguirRevision();
+
+  // Rendir en la plataforma solo tiene sentido donde hay preguntas cargadas.
+  const conPreguntas = t === 'escrito' || t === 'choice';
+  chkPlataforma.disabled = !conPreguntas;
+  if (!conPreguntas) chkPlataforma.checked = false;
+  notaPlataforma.hidden = conPreguntas;
+  chkPlataforma.closest('label').style.opacity = conPreguntas ? '' : '.55';
+  seguirPlataforma();
 }
+
+// El reloj del examen sale de la hora de cierre: sin ella, marcarlo no haría nada.
+const chkPlataforma = document.getElementById('chk-plataforma');
+const notaPlataforma = document.getElementById('plataforma-solo-examen');
+const avisoSinCierre = document.getElementById('aviso-sin-cierre');
+const inpCierre = document.querySelector('input[name="fecha_cierre"]');
+function seguirPlataforma() {
+  avisoSinCierre.hidden = !(chkPlataforma.checked && !chkPlataforma.disabled && !inpCierre.value);
+}
+chkPlataforma.addEventListener('change', seguirPlataforma);
+inpCierre.addEventListener('change', seguirPlataforma);
 
 // El aviso vive en la página y no en un confirm() del navegador: un modal del sistema
 // interrumpe, aparece una sola vez y se contesta sin leer. Acá la consecuencia queda a la
