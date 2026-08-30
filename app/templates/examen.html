@@ -5,21 +5,26 @@
 {# La pantalla del examen es deliberadamente sobria: sin barra de formato, sin menús, sin
    nada que invite a irse. Lo único fijo arriba es el reloj y el estado del guardado, que
    son las dos cosas que alguien rindiendo necesita saber en todo momento. #}
+{# Los avisos viven DENTRO del encabezado pegajoso, no sueltos arriba de la página.
+   Antes quedaban al tope del documento: quien estaba escribiendo la pregunta 3 no los veía
+   nunca, porque aparecían a mil píxeles por encima de lo que tenía en pantalla. Un aviso
+   que hay que ir a buscar no es un aviso. #}
 <div class="examen-cab" data-examen="{{ assignment.id }}"
      data-cierre="{{ cierre }}" data-ahora="{{ ahora }}" data-base="{{ base }}">
-  <div>
-    <h1>{{ assignment.name }}</h1>
-    <p class="muted small">{{ course.materia }} · {{ items|length }} pregunta{{ 's' if items|length != 1 }}
-      · {{ puntaje_total|round(2)|int if puntaje_total == puntaje_total|round(0) else puntaje_total }} puntos</p>
+  <div class="examen-cab-fila">
+    <div>
+      <h1>{{ assignment.name }}</h1>
+      <p class="muted small">{{ course.materia }} · {{ items|length }} pregunta{{ 's' if items|length != 1 }}
+        · {{ puntaje_total|round(2)|int if puntaje_total == puntaje_total|round(0) else puntaje_total }} puntos</p>
+    </div>
+    <div class="examen-estado">
+      {% if cierre %}<span class="reloj" id="reloj" title="Tiempo restante">—</span>{% endif %}
+      <span class="muted small" id="guardado">Guardado</span>
+    </div>
   </div>
-  <div class="examen-estado">
-    {% if cierre %}<span class="reloj" id="reloj" title="Tiempo restante">—</span>{% endif %}
-    <span class="muted small" id="guardado">Guardado</span>
-  </div>
+  <div class="flash warn examen-aviso" id="aviso-incidente" hidden></div>
+  <div class="flash bad examen-aviso" id="aviso-conexion" hidden>Sin conexión: lo que escribas se guarda en cuanto vuelva.</div>
 </div>
-
-<div class="flash warn" id="aviso-incidente" hidden></div>
-<div class="flash bad" id="aviso-conexion" hidden>Sin conexión: lo que escribas se guarda en cuanto vuelva.</div>
 
 {% if assignment.consigna %}
 <section class="card">

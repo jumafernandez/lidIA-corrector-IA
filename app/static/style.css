@@ -690,10 +690,14 @@ input[type="datetime-local"]:hover::-webkit-calendar-picker-indicator { opacity:
    necesita tener siempre a la vista, y perderlos al bajar sería justo lo que no se quiere. */
 .examen-cab {
   position: sticky; top: 0; z-index: 5;
-  display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
   padding: 12px 16px; margin-bottom: 16px;
   background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
 }
+.examen-cab-fila {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+}
+/* El aviso viaja con el encabezado, así que se ve se esté donde se esté en la página. */
+.examen-aviso { margin: 10px 0 0; }
 .examen-cab h1 { margin: 0; font-size: 1.3rem; }
 .examen-cab p { margin: 2px 0 0; }
 .examen-estado { display: flex; align-items: center; gap: 14px; }
