@@ -13,7 +13,7 @@ import os
 import sys
 
 from app import auth
-from app.db import anio_actual, enroll, get_db, init_db, utcnow
+from app.db import anio_actual, enroll, get_db, init_db, partir_nombre, utcnow
 
 ADMIN_LOGIN = os.environ.get("LIDIA_ADMIN_LOGIN", "admin")
 ADMIN_NAME = os.environ.get("LIDIA_ADMIN_NAME", "Coordinación")
@@ -277,9 +277,10 @@ def crear_admin(db) -> bool:
     # nadie más que su dueño tiene por qué conocerla.
     password = auth.generate_password()
     db.execute(
-        "INSERT INTO users (login, password_hash, full_name, email, role, active, created_at)"
-        " VALUES (?, ?, ?, ?, 'admin', 1, ?)",
-        (ADMIN_LOGIN, auth.hash_password(password), ADMIN_NAME, ADMIN_EMAIL, utcnow()),
+        "INSERT INTO users (login, password_hash, apellido, nombre, full_name, email,"
+        " role, active, created_at) VALUES (?, ?, ?, ?, ?, ?, 'admin', 1, ?)",
+        (ADMIN_LOGIN, auth.hash_password(password), *partir_nombre(ADMIN_NAME),
+         ADMIN_NAME, ADMIN_EMAIL, utcnow()),
     )
     print(f"Coordinación creada → usuario: {ADMIN_LOGIN} · contraseña: {password}")
     print("Anotala ahora: se muestra una sola vez. Cambiala al entrar, desde «Tu cuenta».")
@@ -293,9 +294,10 @@ def _usuario(db, login, nombre, rol, email=""):
         return fila["id"], None
     password = auth.generate_password()
     uid = db.execute(
-        "INSERT INTO users (login, password_hash, full_name, email, role, active, created_at)"
-        " VALUES (?, ?, ?, ?, ?, 1, ?)",
-        (login, auth.hash_password(password), nombre, email, rol, utcnow()),
+        "INSERT INTO users (login, password_hash, apellido, nombre, full_name, email,"
+        " role, active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)",
+        (login, auth.hash_password(password), *partir_nombre(nombre), nombre, email,
+         rol, utcnow()),
     ).lastrowid
     return uid, password
 

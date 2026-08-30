@@ -16,9 +16,14 @@ así que no va a poder entrar. Cargáselo acá abajo.</div>
     <h2>Ficha</h2>
     <form method="post" action="{{ base }}/admin/estudiantes/{{ est.id }}">
       <input type="hidden" name="action" value="guardar">
-      <label>Apellido y nombre
-        <input name="full_name" value="{{ est.full_name }}">
-      </label>
+      <div class="grid2">
+        <label>Apellido
+          <input name="apellido" value="{{ est.apellido }}">
+        </label>
+        <label>Nombre
+          <input name="nombre" value="{{ est.nombre }}">
+        </label>
+      </div>
       <label>Correo
         <input name="email" value="{{ est.email }}" type="text" placeholder="para avisarle la devolución final">
       </label>

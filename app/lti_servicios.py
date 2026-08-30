@@ -109,6 +109,11 @@ def lista(iss: str, url: str) -> list:
                 "usuario": (m.get("ext_user_username") or "").strip(),
                 "sourcedid": (m.get("lis_person_sourcedid") or "").strip(),
                 "nombre": (m.get("name") or "").strip(),
+                # El campus manda el apellido y el nombre por separado, y son los buenos:
+                # con el nombre completo habría que adivinar dónde cortar, y «Ana Suárez
+                # Pérez» no se puede partir sin saber cuál es cuál.
+                "apellido": (m.get("family_name") or "").strip(),
+                "nombre_pila": (m.get("given_name") or "").strip(),
                 "email": (m.get("email") or "").strip(),
                 "roles": roles,
                 "estudiante": ROL_ESTUDIANTE in roles,

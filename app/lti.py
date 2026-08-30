@@ -29,7 +29,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from . import auth, claves, intentos, lti_storage
-from .db import (can_access_edition, get_assignment, get_db, get_edition,
+from .db import (nombre_completo, can_access_edition, get_assignment, get_db, get_edition,
                  is_enrolled, utcnow)
 
 log = logging.getLogger("lidia.lti")
@@ -598,7 +598,7 @@ def _cotejar(edicion_id: int, gente: list) -> dict:
         sobrantes = []
         for u in db.execute(
             "SELECT u.* FROM enrollments e JOIN users u ON u.id = e.user_id"
-            " WHERE e.edition_id = ? AND u.role = 'student' ORDER BY u.full_name",
+            " WHERE e.edition_id = ? AND u.role = 'student' ORDER BY u.apellido, u.nombre",
             (edicion_id,),
         ).fetchall():
             if u["login"] not in dnis_campus:
@@ -680,12 +680,13 @@ async def importar_confirmar(request: Request, cid: int):
                 # Sin contraseña utilizable: quien llega del campus entra por el
                 # lanzamiento, y si alguna vez quiere entrar derecho a LidIA pide su enlace.
                 # Un hash vacío es peligroso: según con qué se lo compare, podría validar.
+                apellido, nombre = _nombre_del_campus(m)
                 uid = db.execute(
-                    "INSERT INTO users (login, password_hash, full_name,"
+                    "INSERT INTO users (login, password_hash, apellido, nombre, full_name,"
                     " email, role, active, created_at)"
-                    " VALUES (?, ?, ?, ?, 'student', 1, ?)",
-                    (dni, claves.clave_inutilizable(), _apellido_nombre(m["nombre"]),
-                     m["email"], utcnow()),
+                    " VALUES (?, ?, ?, ?, ?, ?, 'student', 1, ?)",
+                    (dni, claves.clave_inutilizable(), apellido, nombre,
+                     nombre_completo(apellido, nombre), m["email"], utcnow()),
                 ).lastrowid
                 creados += 1
             else:
@@ -708,12 +709,20 @@ async def importar_confirmar(request: Request, cid: int):
                         "No había nada nuevo para traer.")
 
 
-def _apellido_nombre(completo: str) -> str:
-    """«María Gómez» → «Gómez, María», que es como LidIA guarda los nombres."""
-    partes = (completo or "").strip().split()
-    if len(partes) < 2:
-        return completo or "(sin nombre)"
-    return f"{partes[-1]}, {' '.join(partes[:-1])}"
+def _nombre_del_campus(m: dict) -> tuple[str, str]:
+    """(apellido, nombre) de un miembro del campus.
+
+    Se usan los campos separados que manda el campus, que son los correctos. Solo si no
+    vinieran se cae al nombre completo, y ahí NO se adivina el corte: va entero al
+    apellido. Antes se tomaba la última palabra como apellido, y con dos apellidos —lo más
+    común acá— salía siempre mal: «Ana Suárez Pérez» quedaba como «Pérez, Ana Suárez».
+    """
+    apellido = (m.get("apellido") or "").strip()
+    nombre = (m.get("nombre_pila") or "").strip()
+    if apellido or nombre:
+        return apellido, nombre
+    completo = (m.get("nombre") or "").strip()
+    return (completo or "(sin nombre)"), ""
 
 
 # ------------------------------------------------------------------ la nota de vuelta
@@ -791,7 +800,7 @@ def _comparar_notas(assignment_id: int):
             "  LEFT JOIN lti_identidades i ON i.user_id = s.user_id AND i.iss = ?"
             "       AND i.client_id = ? AND i.deployment_id = ?"
             " WHERE s.assignment_id = ? AND s.kind = 'final' AND s.status = 'aprobada'"
-            "   AND s.nota IS NOT NULL ORDER BY u.full_name",
+            "   AND s.nota IS NOT NULL ORDER BY u.apellido, u.nombre",
             (servicio["iss"], servicio["client_id"], servicio["deployment_id"], assignment_id),
         ).fetchall()
 

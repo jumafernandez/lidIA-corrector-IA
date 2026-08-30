@@ -22,6 +22,7 @@ from . import (archivos, auth, choice as choice_mod, circuito as circ, claves,
                examen as examen_mod, intentos,
                investigacion, lti, lti_storage, modelos, repos)
 from .db import (ahora_local, all_courses, anio_actual, momento_apertura, momento_cierre,
+                 nombre_completo, partir_nombre,
                  periodo_sql, ventana_entrega, fecha_corta, assignment_cfg,
                  assignment_items, can_access_edition,
                  inscripcion_habilitada,
@@ -714,6 +715,25 @@ def avatar(request: Request, uid: int):
 # Una cursada tiene que caer en un año plausible: el campo viene precargado con el año
 # en curso, así que un valor fuera de rango es un dedazo, no una intención.
 ANIO_MIN, ANIO_MAX = 2000, 2100
+
+
+def _leer_nombre(form, actual=None) -> tuple[str, str]:
+    """(apellido, nombre) de un formulario.
+
+    Acepta también el campo único de antes, para que un formulario viejo —o un enlace
+    guardado— no deje a alguien sin nombre. En ese caso no se adivina el corte: lo resuelve
+    `partir_nombre`, que solo separa donde hay una coma escrita por una persona.
+    """
+    apellido = (form.get("apellido") or "").strip()
+    nombre = (form.get("nombre") or "").strip()
+    if apellido or nombre:
+        return apellido, nombre
+    completo = (form.get("full_name") or "").strip()
+    if completo:
+        return partir_nombre(completo)
+    if actual is not None:
+        return (actual["apellido"] or "").strip(), (actual["nombre"] or "").strip()
+    return "", ""
 
 
 def _en_plataforma(tipo: str, marcado: str, fecha_cierre: str) -> tuple[int, str]:
@@ -2184,7 +2204,7 @@ def admin_curso(request: Request, cid: int):
         asignados = edition_teachers(db, cid)
         # la coordinación también puede figurar como docente de un curso
         docentes = db.execute(
-            "SELECT * FROM users WHERE role IN ('docente', 'admin') ORDER BY role = 'admin' DESC, full_name"
+            "SELECT * FROM users WHERE role IN ('docente', 'admin') ORDER BY role = 'admin' DESC, apellido, nombre"
         ).fetchall()
         instancias = db.execute(
             "SELECT a.*,"
@@ -2199,7 +2219,7 @@ def admin_curso(request: Request, cid: int):
             " (SELECT COUNT(*) FROM submissions s JOIN assignments a ON a.id = s.assignment_id"
             "  WHERE s.user_id = u.id AND a.edition_id = ?) AS n_entregas"
             " FROM users u JOIN enrollments e ON e.user_id = u.id"
-            " WHERE e.edition_id = ? ORDER BY u.full_name",
+            " WHERE e.edition_id = ? ORDER BY u.apellido, u.nombre",
             (cid, cid),
         ).fetchall()
     asignados_ids = {d["id"] for d in asignados}
@@ -2528,7 +2548,7 @@ def admin_edicion_duplicar(request: Request, cid: int):
             (cid,),
         ).fetchall()
         docentes = db.execute(
-            "SELECT * FROM users WHERE role IN ('docente', 'admin') ORDER BY role = 'admin' DESC, full_name"
+            "SELECT * FROM users WHERE role IN ('docente', 'admin') ORDER BY role = 'admin' DESC, apellido, nombre"
         ).fetchall()
         origen_docentes = {d["id"] for d in edition_teachers(db, cid)}
     return render(
@@ -2956,7 +2976,7 @@ def admin_docentes_buscar(request: Request, q: str = ""):
         filas = db.execute(
             "SELECT id, full_name, login, role, active FROM users"
             " WHERE role IN ('docente', 'admin') AND (full_name LIKE ? OR login LIKE ?)"
-            " ORDER BY active DESC, full_name LIMIT 8", (like, like),
+            " ORDER BY active DESC, apellido, nombre LIMIT 8", (like, like),
         ).fetchall()
     return JSONResponse([
         {"id": f["id"], "nombre": f["full_name"], "login": f["login"],
@@ -2975,7 +2995,7 @@ def admin_docentes(request: Request):
             " JOIN course_editions ce ON ce.id = ct.edition_id"
             " JOIN courses c ON c.id = ce.course_id"
             " WHERE ct.user_id = u.id) AS cursos "
-            "FROM users u WHERE u.role IN ('docente', 'admin') ORDER BY u.role = 'admin' DESC, u.full_name"
+            "FROM users u WHERE u.role IN ('docente', 'admin') ORDER BY u.role = 'admin' DESC, u.apellido, u.nombre"
         ).fetchall()
         cursos = staff_editions(db, user)
     return render(request, "admin_docentes.html", rows=rows, cursos=cursos)
@@ -2998,19 +3018,21 @@ async def admin_docentes_crear(request: Request):
         return resp
     form = await request.form()
     login_id = (form.get("login") or "").strip()
-    nombre = (form.get("full_name") or "").strip()
+    apellido, nombre_pila = _leer_nombre(form)
+    nombre = nombre_completo(apellido, nombre_pila)
     email = (form.get("email") or "").strip()
-    if not nombre:
-        return redirect("/admin/docentes/nuevo", err="El docente necesita apellido y nombre.")
+    if not apellido:
+        return redirect("/admin/docentes/nuevo", err="El docente necesita al menos el apellido.")
     if not LOGIN_RE.match(login_id):
         return redirect("/admin/docentes/nuevo", err="Usuario inválido: 3–32 caracteres, letras/números/. _ - (sin espacios).")
     with get_db() as db:
         if db.execute("SELECT 1 FROM users WHERE login = ?", (login_id,)).fetchone():
             return redirect("/admin/docentes/nuevo", err=f"Ya existe un usuario «{login_id}».")
         cur = db.execute(
-            "INSERT INTO users (login, password_hash, full_name, email, role, active, created_at)"
-            " VALUES (?, ?, ?, ?, 'docente', 1, ?)",
-            (login_id, claves.clave_inutilizable(), nombre, email, utcnow()),
+            "INSERT INTO users (login, password_hash, apellido, nombre, full_name, email,"
+            " role, active, created_at) VALUES (?, ?, ?, ?, ?, ?, 'docente', 1, ?)",
+            (login_id, claves.clave_inutilizable(), apellido, nombre_pila,
+             nombre, email, utcnow()),
         )
         uid = cur.lastrowid
         for cid in form.getlist("cursos"):
@@ -3064,10 +3086,11 @@ async def admin_docente_post(request: Request, uid: int):
             db.execute("DELETE FROM users WHERE id = ?", (uid,))
             return redirect("/admin/docentes", msg=f"Docente {doc['full_name']} eliminado.")
         if action == "guardar":
-            nombre = (form.get("full_name") or "").strip() or doc["full_name"]
+            apellido, nombre_pila = _leer_nombre(form, doc)
             db.execute(
-                "UPDATE users SET full_name = ?, email = ? WHERE id = ?",
-                (nombre, (form.get("email") or "").strip(), uid),
+                "UPDATE users SET apellido = ?, nombre = ?, full_name = ?, email = ? WHERE id = ?",
+                (apellido, nombre_pila, nombre_completo(apellido, nombre_pila),
+                 (form.get("email") or "").strip(), uid),
             )
             db.execute("DELETE FROM course_teachers WHERE user_id = ?", (uid,))
             for cid in form.getlist("cursos"):
@@ -3083,7 +3106,8 @@ async def admin_docente_post(request: Request, uid: int):
 
 # ---------------------------------------------------------------- staff: estudiantes
 
-def _crear_o_inscribir(db, edition_id: int, dni: str, nombre: str, email: str, profile: str = "") -> tuple[str, str]:
+def _crear_o_inscribir(db, edition_id: int, dni: str, apellido: str, nombre: str,
+                       email: str, profile: str = "") -> tuple[str, str]:
     """Devuelve (resultado, dato): ('creado'|'inscripto'|'ya_estaba', nombre) | ('error', motivo).
 
     La cuenta nace sin contraseña utilizable: su dueño elige la suya con el enlace que se
@@ -3101,17 +3125,24 @@ def _crear_o_inscribir(db, edition_id: int, dni: str, nombre: str, email: str, p
             return "inscripto", row["full_name"]
         return "ya_estaba", row["full_name"]
     cur = db.execute(
-        "INSERT INTO users (login, password_hash, full_name, email, role, active, profile, created_at)"
-        " VALUES (?, ?, ?, ?, 'student', 1, ?, ?)",
-        (dni, claves.clave_inutilizable(), nombre, email, profile, utcnow()),
+        "INSERT INTO users (login, password_hash, apellido, nombre, full_name, email,"
+        " role, active, profile, created_at) VALUES (?, ?, ?, ?, ?, ?, 'student', 1, ?, ?)",
+        (dni, claves.clave_inutilizable(), apellido, nombre,
+         nombre_completo(apellido, nombre), email, profile, utcnow()),
     )
     enroll(db, cur.lastrowid, edition_id)
-    return "creado", nombre
+    return "creado", nombre_completo(apellido, nombre)
 
 
 def _alta_estudiantes(db, edition_id: int, lines: list[str]):
-    """Crea/inscribe estudiantes desde líneas «DNI, Apellido y Nombre, correo»."""
+    """Crea/inscribe estudiantes desde líneas «DNI, Apellido, Nombre, correo».
+
+    Sigue aceptando el formato viejo de tres columnas —«DNI, Nombre completo, correo»—
+    porque hay listados armados así dando vueltas. Se distinguen mirando si la tercera
+    columna es un correo: si lo es, la segunda era el nombre entero.
+    """
     creados, inscriptos, ya_estaban, errores = [], [], [], []
+    formato = "se esperaba «DNI, Apellido, Nombre, correo»"
     for i, line in enumerate(lines, 1):
         line = line.strip().lstrip("﻿")
         if not line:
@@ -3120,11 +3151,16 @@ def _alta_estudiantes(db, edition_id: int, lines: list[str]):
             line = line.replace(sep, ",")
         parts = [p.strip() for p in line.split(",") if p.strip()]
         if len(parts) < 2:
-            errores.append(f"línea {i}: se esperaba «DNI, Apellido y Nombre, correo»")
+            errores.append(f"línea {i}: {formato}")
             continue
-        dni, nombre = parts[0], parts[1]
-        email = parts[2] if len(parts) > 2 else ""
-        res, dato = _crear_o_inscribir(db, edition_id, dni, nombre, email)
+        dni = parts[0]
+        if len(parts) >= 3 and "@" not in parts[2]:
+            apellido, nombre = parts[1], parts[2]
+            email = parts[3] if len(parts) > 3 else ""
+        else:
+            apellido, nombre = partir_nombre(parts[1])
+            email = parts[2] if len(parts) > 2 else ""
+        res, dato = _crear_o_inscribir(db, edition_id, dni, apellido, nombre, email)
         if res == "creado":
             creados.append(dato)
         elif res == "inscripto":
@@ -3150,17 +3186,17 @@ def admin_estudiantes(request: Request, curso: str | None = None):
         if curso is not None:
             students = db.execute(
                 "SELECT DISTINCT u.* FROM users u JOIN enrollments e ON e.user_id = u.id "
-                "WHERE u.role = 'student' AND e.edition_id = ? ORDER BY u.full_name", (curso,)
+                "WHERE u.role = 'student' AND e.edition_id = ? ORDER BY u.apellido, u.nombre", (curso,)
             ).fetchall()
         elif ids is None:
             students = db.execute(
-                "SELECT * FROM users WHERE role = 'student' ORDER BY full_name"
+                "SELECT * FROM users WHERE role = 'student' ORDER BY apellido, nombre"
             ).fetchall()
         elif ids:
             marks = ",".join("?" * len(ids))
             students = db.execute(
                 f"SELECT DISTINCT u.* FROM users u JOIN enrollments e ON e.user_id = u.id "
-                f"WHERE u.role = 'student' AND e.edition_id IN ({marks}) ORDER BY u.full_name", ids
+                f"WHERE u.role = 'student' AND e.edition_id IN ({marks}) ORDER BY u.apellido, u.nombre", ids
             ).fetchall()
         else:
             students = []
@@ -3209,19 +3245,24 @@ def admin_estudiantes_importar(request: Request, curso: str | None = None):
 
 @app.post("/admin/estudiantes/alta")
 def admin_alta(
-    request: Request, dni: str = Form(...), full_name: str = Form(...),
-    email: str = Form(""), curso_id: int = Form(...), profile: str = Form(""),
+    request: Request, dni: str = Form(...), apellido: str = Form(""), nombre: str = Form(""),
+    full_name: str = Form(""), email: str = Form(""), curso_id: int = Form(...),
+    profile: str = Form(""),
 ):
     user, resp = _require(request, *STAFF)
     if resp:
         return resp
-    dni, full_name = dni.strip(), full_name.strip()
-    if not full_name:
-        return redirect(f"/admin/estudiantes/nuevo?curso={curso_id}", err="Falta el apellido y nombre.")
+    dni = dni.strip()
+    apellido, nombre_pila = _leer_nombre(
+        {"apellido": apellido, "nombre": nombre, "full_name": full_name})
+    full_name = nombre_completo(apellido, nombre_pila)
+    if not apellido:
+        return redirect(f"/admin/estudiantes/nuevo?curso={curso_id}", err="Falta el apellido.")
     with get_db() as db:
         if not can_access_edition(db, user, curso_id) or not get_edition(db, curso_id):
             return redirect("/admin/estudiantes", err="No podés dar altas en ese curso.")
-        res, dato = _crear_o_inscribir(db, curso_id, dni, full_name, email.strip(), profile.strip())
+        res, dato = _crear_o_inscribir(db, curso_id, dni, apellido, nombre_pila,
+                                       email.strip(), profile.strip())
     if res == "error":
         return redirect(f"/admin/estudiantes/nuevo?curso={curso_id}", err=dato)
     if res == "creado":
@@ -3335,7 +3376,7 @@ def admin_ficha(request: Request, uid: int):
 def admin_ficha_post(
     request: Request, uid: int, action: str = Form(...),
     profile: str = Form(""), email: str = Form(""), full_name: str = Form(""),
-    curso_id: int = Form(0),
+    apellido: str = Form(""), nombre: str = Form(""), curso_id: int = Form(0),
 ):
     user, resp = _require(request, *STAFF)
     if resp:
@@ -3356,9 +3397,12 @@ def admin_ficha_post(
             db.execute("DELETE FROM users WHERE id = ?", (uid,))
             return redirect("/admin/estudiantes", msg=f"Estudiante {row['full_name']} eliminado.")
         if action == "guardar":
+            ap, nom = _leer_nombre(
+                {"apellido": apellido, "nombre": nombre, "full_name": full_name}, row)
             db.execute(
-                "UPDATE users SET profile = ?, email = ?, full_name = ? WHERE id = ?",
-                (profile.strip(), email.strip(), full_name.strip() or row["full_name"], uid),
+                "UPDATE users SET profile = ?, email = ?, apellido = ?, nombre = ?,"
+                " full_name = ? WHERE id = ?",
+                (profile.strip(), email.strip(), ap, nom, nombre_completo(ap, nom), uid),
             )
             return redirect(f"/admin/estudiantes/{uid}", msg="Ficha actualizada.")
         if action == "reset_password":
@@ -3404,7 +3448,7 @@ def admin_notas_csv(request: Request, cid: int):
             " JOIN assignments a ON a.edition_id = e.edition_id"
             " LEFT JOIN submissions s ON s.user_id = u.id AND s.assignment_id = a.id"
             "   AND s.kind = 'final' AND s.status = 'aprobada'"
-            " WHERE e.edition_id = ? ORDER BY u.full_name, a.id",
+            " WHERE e.edition_id = ? ORDER BY u.apellido, u.nombre, a.id",
             (cid,),
         ).fetchall()
     buf = io.StringIO()
@@ -3486,7 +3530,7 @@ def admin_papel(request: Request, aid: int):
             " (SELECT COUNT(*) FROM submissions s WHERE s.user_id = u.id AND s.assignment_id = ?"
             "    AND s.kind = 'final') AS tiene_final"
             " FROM enrollments e JOIN users u ON u.id = e.user_id"
-            " WHERE e.edition_id = ? ORDER BY u.full_name",
+            " WHERE e.edition_id = ? ORDER BY u.apellido, u.nombre",
             (aid, curso["id"]),
         ).fetchall()
     return render(request, "admin_papel.html", assignment=assignment, course=curso,

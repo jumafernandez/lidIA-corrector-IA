@@ -13,6 +13,11 @@ DB_PATH = os.path.join(DATA_DIR, "lidia.db")
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY,
+    -- El apellido y el nombre van separados porque son dos datos, no uno: por el apellido
+    -- se ordena y se arman las actas, y pegarlos obliga a adivinar después dónde cortar.
+    -- «Ana Suárez Pérez» no se puede partir bien sin saber cuál es cuál.
+    apellido TEXT NOT NULL DEFAULT '',
+    nombre TEXT NOT NULL DEFAULT '',
     login TEXT NOT NULL UNIQUE,            -- DNI para estudiantes, usuario para docentes/coordinación
     password_hash TEXT NOT NULL,
     initial_password TEXT,                 -- solo para repartir credenciales (quitar en producción)
@@ -217,6 +222,34 @@ DEMO_RUBRICA = (
     "4. Evaluación de resultados: métricas o criterios de evaluación, análisis crítico de limitaciones.\n"
     "5. Calidad del informe: organización, claridad, uso correcto de terminología, citas y referencias."
 )
+
+
+def nombre_completo(apellido: str, nombre: str) -> str:
+    """Cómo se escribe un nombre en pantalla: «Apellido, Nombre».
+
+    Se arma en un solo lugar para que todas las pantallas lo escriban igual, y se guarda
+    en `full_name` para que nada de lo que ya lee ese campo tenga que enterarse.
+    """
+    apellido, nombre = (apellido or "").strip(), (nombre or "").strip()
+    if apellido and nombre:
+        return f"{apellido}, {nombre}"
+    return apellido or nombre
+
+
+def partir_nombre(completo: str) -> tuple[str, str]:
+    """(apellido, nombre) a partir de un nombre escrito todo junto.
+
+    Corta SOLO donde hay una coma, porque esa coma la escribió una persona que sabía cuál
+    era cuál. Sin coma no se adivina: «Ana Suárez Pérez» puede ser un nombre con dos
+    apellidos o dos nombres con uno, y elegir mal ordena mal para siempre y sin que se
+    note. En ese caso va todo al apellido: el listado queda alfabético y el error a la
+    vista de quien pueda corregirlo, que es mejor que un orden equivocado en silencio.
+    """
+    completo = (completo or "").strip()
+    if "," in completo:
+        apellido, nombre = completo.split(",", 1)
+        return apellido.strip(), nombre.strip()
+    return completo, ""
 
 
 def utcnow() -> str:
@@ -558,6 +591,24 @@ def init_db():
             # que ve el sistema es el archivo que llega al final.
             db.execute("ALTER TABLE assignments ADD COLUMN en_plataforma INTEGER NOT NULL DEFAULT 0")
 
+        cols = {r["name"] for r in db.execute("PRAGMA table_info(users)")}
+        if "apellido" not in cols:
+            # 027 — El apellido y el nombre, separados. Hasta acá vivían pegados en
+            # `full_name` con la convención «Apellido, Nombre», que se sostenía sola
+            # mientras los cargara a mano alguien que la conociera. Cualquier alta que
+            # viniera del campus llegaba sin coma y había que adivinar el corte.
+            db.execute("ALTER TABLE users ADD COLUMN apellido TEXT NOT NULL DEFAULT ''")
+            db.execute("ALTER TABLE users ADD COLUMN nombre TEXT NOT NULL DEFAULT ''")
+
+        # Relleno de las filas que todavía no lo tengan. Fuera del `if` porque una fila sin
+        # apellido es una fila sin clasificar, venga de donde venga.
+        for fila in db.execute(
+            "SELECT id, full_name FROM users WHERE TRIM(apellido) = '' AND TRIM(full_name) != ''"
+        ).fetchall():
+            apellido, nombre = partir_nombre(fila["full_name"])
+            db.execute("UPDATE users SET apellido = ?, nombre = ? WHERE id = ?",
+                       (apellido, nombre, fila["id"]))
+
         # Sesiones de usuarios que ya no existen. La clave foránea las borraría sola, pero
         # las que quedaron son de antes de que existiera, o de un borrado hecho con las
         # claves apagadas. No molestan, salvo que ensucian cualquier revisión de integridad
@@ -701,7 +752,7 @@ def can_access_edition(db, user, edition_id: int) -> bool:
 def edition_teachers(db, edition_id: int):
     return db.execute(
         "SELECT u.* FROM users u JOIN course_teachers ct ON ct.user_id = u.id "
-        "WHERE ct.edition_id = ? ORDER BY u.full_name",
+        "WHERE ct.edition_id = ? ORDER BY u.apellido, u.nombre",
         (edition_id,),
     ).fetchall()
 
@@ -902,7 +953,7 @@ def grupo_de(db, user_id: int, assignment_id: int):
 def miembros_de(db, grupo_id: int):
     return db.execute(
         "SELECT u.* FROM users u JOIN grupo_miembros m ON m.user_id = u.id "
-        "WHERE m.grupo_id = ? ORDER BY u.full_name",
+        "WHERE m.grupo_id = ? ORDER BY u.apellido, u.nombre",
         (grupo_id,),
     ).fetchall()
 
