@@ -18,7 +18,11 @@
       <summary>…o pegá el listado (una línea por estudiante)</summary>
       <textarea name="listado" rows="8" placeholder="30123456, Gómez María, mgomez@ejemplo.com&#10;28987654, Pérez Juan, jperez@ejemplo.com"></textarea>
     </details>
-    <button type="submit" class="btn primary">Importar</button>
+    <div class="row-gap">
+      <button type="submit" name="accion" value="guardar" class="btn primary">Importar</button>
+      <button type="submit" name="accion" value="avisar" class="btn"
+              data-confirm="Además de darlos de alta, le va a llegar un correo de bienvenida a cada estudiante NUEVO del listado que tenga correo cargado. A los que ya existían no se les manda nada. ¿Confirmás?">Importar y enviar los avisos</button>
+    </div>
     <p class="muted small">Formato: <code>DNI, Apellido, Nombre, correo</code> — el correo es opcional y también
     sirven «;» o tabulaciones, directo desde una planilla. Sigue andando el formato viejo de tres columnas, con el nombre entero en la segunda.
     Las cuentas nuevas nacen sin contraseña: cada

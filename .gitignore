@@ -1,7 +1,9 @@
 __pycache__/
 *.pyc
 .venv/
-.env
+# Cualquier variante: .env, .env.respaldo, .env.local… Con «.env» a secas, un
+# «.env.respaldo» entraba al repo con la clave adentro.
+.env*
 data/
 
 # Documentación e infraestructura del despliegue institucional (UNLu / CIDETIC):

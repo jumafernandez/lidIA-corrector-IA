@@ -3078,9 +3078,13 @@ async def admin_docentes_crear(request: Request):
             db.execute("INSERT INTO course_teachers (edition_id, user_id) VALUES (?, ?)", (int(cid), uid))
         creado = db.execute("SELECT * FROM users WHERE id = ?", (uid,)).fetchone()
 
-    # La invitación sale sola al crear: pedirle a quien da de alta que además se acuerde de
-    # apretar un botón es una forma segura de que haya cuentas que nunca se puedan usar. El
-    # botón de la ficha queda igual, para cuando el correo rebota o la persona lo perdió.
+    # Avisar o no lo decide quien da el alta, con el botón que usa: cargar el equipo
+    # docente en enero y que a todos les llegue el correo en ese momento no sirve. El
+    # botón de la ficha queda igual, para mandarlo después o si el correo rebotó.
+    if form.get("accion") != "avisar":
+        return redirect("/admin/docentes", msg=(
+            f"Docente {nombre} creado → usuario: {login_id}. No se le avisó todavía: "
+            "cuando quieras, mandale el enlace desde su ficha."))
     if not email:
         return redirect("/admin/docentes", msg=(
             f"Docente {nombre} creado → usuario: {login_id}. No tiene correo cargado, así que "
@@ -3215,7 +3219,9 @@ def _alta_estudiantes(db, edition_id: int, lines: list[str]):
             email = parts[2] if len(parts) > 2 else ""
         res, dato = _crear_o_inscribir(db, edition_id, dni, apellido, nombre, email)
         if res == "creado":
-            creados.append(dato)
+            # Se guarda el DNI y no solo el nombre: es con lo que después se busca a quién
+            # mandarle la invitación, si es que se pidió mandarlas.
+            creados.append(dni)
         elif res == "inscripto":
             inscriptos.append(dato)
         elif res == "ya_estaba":
@@ -3300,7 +3306,7 @@ def admin_estudiantes_importar(request: Request, curso: str | None = None):
 def admin_alta(
     request: Request, dni: str = Form(...), apellido: str = Form(""), nombre: str = Form(""),
     full_name: str = Form(""), email: str = Form(""), curso_id: int = Form(...),
-    profile: str = Form(""),
+    profile: str = Form(""), accion: str = Form(""),
 ):
     user, resp = _require(request, *STAFF)
     if resp:
@@ -3319,11 +3325,21 @@ def admin_alta(
     if res == "error":
         return redirect(f"/admin/estudiantes/nuevo?curso={curso_id}", err=dato)
     if res == "creado":
-        return redirect(
-            f"/admin/estudiantes?curso={curso_id}",
-            msg=(f"{full_name} dado/a de alta → usuario: {dni}. Todavía no tiene contraseña: "
-                 "mandale el enlace desde su ficha para que elija la suya."),
-        )
+        volver = f"/admin/estudiantes?curso={curso_id}"
+        alta = f"{full_name} dado/a de alta → usuario: {dni}."
+        # Igual que en el alta de docente: avisar o no lo decide quien carga, con el botón.
+        if accion != "avisar":
+            return redirect(volver, msg=(
+                f"{alta} No se le avisó todavía: cuando quieras, mandale el enlace desde su ficha."))
+        if not email.strip():
+            return redirect(volver, msg=(
+                f"{alta} No tiene correo cargado, así que no se le pudo avisar: cargáselo y "
+                "mandale el enlace desde su ficha."))
+        with get_db() as db:
+            creado = db.execute("SELECT * FROM users WHERE login = ?", (dni,)).fetchone()
+        ok, detalle = _enviar_enlace(creado, "alta")
+        return redirect(volver, msg=alta, correo=aviso_correo(
+            ok, f"{detalle} El enlace vence en una semana." if ok else detalle))
     if res == "inscripto":
         return redirect(f"/admin/estudiantes?curso={curso_id}", msg=f"{dato} ya existía: quedó inscripto/a en el curso.")
     return redirect(f"/admin/estudiantes?curso={curso_id}", msg=f"{dato} ya estaba inscripto/a en el curso.")
@@ -3333,6 +3349,7 @@ def admin_alta(
 async def admin_cargar(
     request: Request, curso_id: int = Form(...),
     listado: str = Form(""), archivo: UploadFile | None = File(None),
+    accion: str = Form(""),
 ):
     user, resp = _require(request, *STAFF)
     if resp:
@@ -3359,7 +3376,36 @@ async def admin_cargar(
     if ya_estaban:
         msg += f" Ya estaban en el curso: {len(ya_estaban)}."
     err = " · ".join(errores)
-    return redirect(f"/admin/estudiantes?curso={curso_id}", msg=msg, err=err)
+    volver = f"/admin/estudiantes?curso={curso_id}"
+    if accion != "avisar" or not creados:
+        if creados and accion != "avisar":
+            msg += " Todavía no se les avisó: podés mandarles el enlace desde su ficha."
+        return redirect(volver, msg=msg, err=err)
+
+    # Las invitaciones van FUERA del bloque de base: son una llamada de red por persona y
+    # no conviene tener la conexión tomada mientras tanto. Solo a los recién creados —a
+    # quien ya estaba no hay que darle otra vez la bienvenida— y solo si tienen correo.
+    with get_db() as db:
+        marcas = ",".join("?" * len(creados))
+        nuevos = db.execute(
+            f"SELECT * FROM users WHERE login IN ({marcas})", creados).fetchall()
+    enviados, sin_correo, fallados = 0, 0, 0
+    for fila in nuevos:
+        if not (fila["email"] or "").strip():
+            sin_correo += 1
+            continue
+        ok, _detalle = _enviar_enlace(fila, "alta")
+        enviados += 1 if ok else 0
+        fallados += 0 if ok else 1
+    partes = [f"Se envió 1 invitación." if enviados == 1
+              else f"Se enviaron {enviados} invitaciones."]
+    if sin_correo:
+        partes.append(f"{sin_correo} sin correo cargado, sin avisar."
+                      if sin_correo > 1 else "1 sin correo cargado, sin avisar.")
+    if fallados:
+        partes.append(f"{fallados} no se pudieron enviar." if fallados > 1
+                      else "1 no se pudo enviar.")
+    return redirect(volver, msg=msg, err=err, correo=" ".join(partes))
 
 
 @app.post("/admin/estudiantes/{uid}/toggle")

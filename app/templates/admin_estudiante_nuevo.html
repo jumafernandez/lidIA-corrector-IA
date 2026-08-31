@@ -33,8 +33,16 @@
     <label>Perfil de corrección (optativo — texto libre, todo lo largo que haga falta)
       <textarea name="profile" rows="7" placeholder="Orienta el tono y el foco de las devoluciones de Lidia para esta persona. Ej.: viene de sistemas, puede recibir observaciones técnicas duras · perfil no informático, priorizar lo conceptual y sugerir recursos introductorios"></textarea>
     </label>
-    <button type="submit" class="btn primary">Dar de alta</button>
-    {{ info("La cuenta nace sin contraseña: se le manda un enlace para que elija la suya. Si el DNI ya existe, solo se lo inscribe en el curso elegido. El perfil ajusta la devolución sin cambiar el estándar de exigencia; el DNI nunca se envía al modelo.") }}
+    <div class="row-gap">
+      <button type="submit" name="accion" value="avisar" class="btn primary">Dar de alta y enviar el aviso</button>
+      <button type="submit" name="accion" value="guardar" class="btn">Dar de alta sin avisar</button>
+    </div>
+    {{ info("La cuenta nace sin contraseña. Con «enviar el aviso» le llega un enlace para que elija la
+    suya; sin avisar queda cargada y muda hasta que se lo mandes desde su ficha, que es lo que conviene
+    cuando inscribís gente antes de que empiece la cursada. Sin correo cargado no hay a dónde mandarlo.
+
+    Si el DNI ya existe, solo se lo inscribe en el curso elegido. El perfil ajusta la devolución sin
+    cambiar el estándar de exigencia; el DNI nunca se envía al modelo.") }}
 
   </form>
 </section>

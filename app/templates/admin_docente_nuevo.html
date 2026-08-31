@@ -31,8 +31,11 @@
       </label>
     {% endfor %}
     {% endif %}
-    <button type="submit" class="btn primary">Crear docente</button>
-    <p class="muted small">Al crearla se le manda al correo un enlace para que elija su contraseña, válido por una semana. Si no cargás correo, la cuenta queda sin poder usarse hasta que se lo mandes desde su ficha. El docente ve y administra solo sus cursos.</p>
+    <div class="row-gap">
+      <button type="submit" name="accion" value="avisar" class="btn primary">Crear y enviar el aviso</button>
+      <button type="submit" name="accion" value="guardar" class="btn">Crear sin avisar</button>
+    </div>
+    <p class="muted small">Con «enviar el aviso» le llega un enlace para que elija su contraseña, válido por una semana. Sin avisar, la cuenta queda creada y muda hasta que se lo mandes desde su ficha: sirve para dejar cargado el equipo antes de que empiece la cursada. El docente ve y administra solo sus cursos.</p>
   </form>
 </section>
 {% endblock %}
