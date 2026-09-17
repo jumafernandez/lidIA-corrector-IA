@@ -8,8 +8,14 @@
 <h1>{{ assignment.name }}
   <span class="pill pill-mini">{{ tipo_nombre }}</span>
   <span class="pill pill-mini {{ 'pill-ok' if assignment.active else 'pill-warn' }}">{{ 'Activa' if assignment.active else 'Borrador' }}</span></h1>
-<p class="muted"><a href="{{ base }}/admin/instancias/{{ assignment.id }}/editar">✎ Editar nombre y tipo</a> ·
-  {{ n_entregas }} entrega{{ 's' if n_entregas != 1 }} hasta ahora</p>
+{# El enlace decía «nombre y tipo» y detrás también estaban las fechas: nadie iba a buscarlas
+   ahí. Y la ventana se muestra acá, que es donde se la busca, aunque se edite en la otra pantalla. #}
+<p class="muted"><a href="{{ base }}/admin/instancias/{{ assignment.id }}/editar">✎ Editar nombre, tipo y fechas</a> ·
+  {{ n_entregas }} entrega{{ 's' if n_entregas != 1 }} hasta ahora
+  {% if assignment.fecha_apertura or assignment.fecha_cierre %}
+  · {% if assignment.fecha_apertura %}abre el {{ assignment.fecha_apertura|fecha_corta }}{% endif %}
+  {%- if assignment.fecha_cierre %}{{ ', ' if assignment.fecha_apertura }}cierra el {{ assignment.fecha_cierre|fecha_corta }}{% endif %}
+  {% else %}· sin fechas de apertura ni cierre{% endif %}</p>
 
 <section class="card carga-modelo">
   <div class="row-between">
