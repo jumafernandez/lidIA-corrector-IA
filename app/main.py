@@ -1,6 +1,7 @@
 """LidIA — devoluciones formativas con IA. LICDIA · UNLu."""
 import csv
 import difflib
+import html
 import io
 import json
 import logging
@@ -39,7 +40,8 @@ from .extract import ExtractionError, contar_imagenes, extract_text, paginas_de_
 from .llm import (LLMError, answer_question, criterios_de, explicar_errores,
                   generate_feedback, leer_respuestas_faltantes, model_info,
                   nota_de_niveles, nota_de_puntajes, puntuar_examen,
-                  revisar_integridad, separar_niveles, split_items, transcribe_images)
+                  revisar_integridad, separar_niveles, split_items, transcribe_images,
+                  transcribir_hojas)
 
 BASE_DIR = os.path.dirname(__file__)
 # prefijo bajo el que se sirve la app detrás del proxy (ej.: /entregas). Vacío en local.
@@ -126,6 +128,7 @@ def _startup():
     huerfanos = archivos.limpiar_huerfanos()
     if huerfanos:
         log.info("Se borraron %s carpetas de entregas sin dueño.", huerfanos)
+    archivos.limpiar_pendientes()
     intentos.init_intentos_db()
 
 
@@ -289,6 +292,38 @@ def _niveles(sub) -> list:
         return json.loads(crudo)
     except (ValueError, TypeError):
         return []
+
+
+def _fotos(sub) -> list:
+    """Las fotos guardadas con la entrega, listas para mostrar. [] si no hay."""
+    crudo = sub["fotos"] if "fotos" in sub.keys() else ""
+    if not (crudo or "").strip():
+        return []
+    try:
+        return json.loads(crudo)
+    except (ValueError, TypeError):
+        return []
+
+
+def _diff_transcripcion(sub) -> str:
+    """Qué cambió el estudiante sobre lo que leyó el modelo, palabra por palabra, en HTML.
+
+    Vacío si no corrigió nada. Lo quitado va tachado y lo agregado subrayado, para que quien
+    valida vea de un vistazo si fue «seso → sesgo» o una respuesta que en la hoja no está.
+    """
+    original = (sub["texto_original"] if "texto_original" in sub.keys() else "") or ""
+    if not original.strip():
+        return ""
+    a, b = original.split(), (sub["work_text"] or "").split()
+    salida = []
+    for op, i1, i2, j1, j2 in difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes():
+        if op == "equal":
+            salida.append(html.escape(" ".join(a[i1:i2])))
+        if op in ("delete", "replace"):
+            salida.append(f"<del>{html.escape(' '.join(a[i1:i2]))}</del>")
+        if op in ("insert", "replace"):
+            salida.append(f"<ins>{html.escape(' '.join(b[j1:j2]))}</ins>")
+    return " ".join(salida)
 
 
 def _repo_leido(sub) -> str:
@@ -1320,6 +1355,7 @@ async def entregar(
     texto: str = Form(""),
     origen: str = Form(""),
     fotos_n: int = Form(0),
+    token: str = Form(""),
     propuesta: UploadFile | None = File(None),
     repo: str = Form(""),
 ):
@@ -1364,6 +1400,20 @@ async def entregar(
             return redirect(back, err="Ya tenés una entrega final en curso.")
         if assignment["modalidad"] == "papel" and origen != "foto":
             return redirect(back, err="Esta instancia se entrega en papel: subí las fotos de tu hoja.")
+
+    # Examen en papel con hojas en espera: el texto llega por hoja, editable, y las fotos se
+    # guardan con la entrega al confirmar. Lo que leyó el modelo se conserva aparte, para
+    # que el docente vea qué cambió el estudiante con la foto al lado.
+    hojas = archivos.hojas_pendientes(token, user["id"]) if token else None
+    texto_original = ""
+    if token and not hojas:
+        return redirect(back, err="Las fotos de esa lectura ya no están: volvé a sacarlas.")
+    if hojas:
+        editados = [str(formulario.get(f"texto_hoja_{h['n']}") or "").strip() for h in hojas["hojas"]]
+        texto = "\n\n".join(t for t in editados if t)
+        leido = "\n\n".join(h["texto"].strip() for h in hojas["hojas"] if h["texto"].strip())
+        texto_original = leido if leido != texto else ""
+        fotos_n, origen = len(hojas["hojas"]), "foto"
 
     # respuestas de un multiple choice son cortas por naturaleza; una transcripción
     # de examen en papel ya pasó por la confirmación del estudiante
@@ -1497,6 +1547,13 @@ async def entregar(
             except OSError:
                 # Sin espacio o sin permisos: la entrega vale igual, se pierde el original.
                 pass
+        if hojas:
+            try:
+                guardadas = archivos.consolidar_hojas(token, user["id"], cur.lastrowid)
+                db.execute("UPDATE submissions SET fotos = ?, texto_original = ? WHERE id = ?",
+                           (json.dumps(guardadas, ensure_ascii=False), texto_original, cur.lastrowid))
+            except OSError:
+                pass
         sid = cur.lastrowid
     if kind == "final":
         # Es la única entrega que admite la instancia, así que el circuito se cierra acá
@@ -1566,39 +1623,76 @@ async def entregar_fotos(
         if kind == "final" and final_activa(db, user["id"], assignment_id):
             return redirect(back, err="Ya tenés una entrega final en curso.")
 
-    imagenes = []
-    for f in fotos:
-        if not f.filename:
-            continue
-        data = await f.read()
-        if len(data) > MAX_FOTO_BYTES:
-            return redirect(back, err=f"La foto {f.filename} supera el máximo de 8 MB.")
-        mime = f.content_type if f.content_type in FOTO_MIMES else None
-        if mime is None:
-            nombre = f.filename.lower()
-            if nombre.endswith((".jpg", ".jpeg")):
-                mime = "image/jpeg"
-            elif nombre.endswith(".png"):
-                mime = "image/png"
-            elif nombre.endswith(".webp"):
-                mime = "image/webp"
-        if mime is None:
-            return redirect(back, err=f"{f.filename}: formato no soportado. Subí fotos JPG, PNG o WEBP.")
-        imagenes.append((mime, data))
-    if not imagenes:
-        return redirect(back, err="Elegí las fotos de tu examen.")
-    if len(imagenes) > MAX_FOTOS:
-        return redirect(back, err=f"Hasta {MAX_FOTOS} fotos por entrega.")
-
     try:
-        transcripcion = transcribe_images(imagenes)
+        imagenes = await _leer_fotos(fotos)
+    except ValueError as exc:
+        return redirect(back, err=str(exc))
+    try:
+        textos = transcribir_hojas(imagenes)
     except LLMError as exc:
         return redirect(back, err=f"No se pudo leer el examen (no se consumió tu intento). {exc}")
+    # Las fotos y su lectura quedan en espera: la pantalla siguiente las muestra hoja por
+    # hoja, y recién al confirmar se mudan a la entrega.
+    token = archivos.preparar_hojas(user["id"], imagenes, textos, assignment_id, kind)
+    return redirect(f"/entregar/fotos/{token}")
 
-    return render(
-        request, "confirmar_fotos.html", assignment=assignment, course=course,
-        kind=kind, transcripcion=transcripcion, n_fotos=len(imagenes),
-    )
+
+@app.get("/entregar/fotos/{token}", response_class=HTMLResponse)
+def entregar_fotos_revisar(request: Request, token: str):
+    """Paso 2 del examen en papel: cada hoja al lado de lo que se leyó de ella.
+
+    El texto se puede corregir antes de confirmar —una palabra mal leída no debería costar
+    puntos—, pero lo que el modelo leyó se guarda aparte y el docente ve las dos versiones
+    con la foto al lado. Corregir es legítimo; que no se note, no.
+    """
+    user, resp = _require(request, "student")
+    if resp:
+        return resp
+    hojas = archivos.hojas_pendientes(token, user["id"])
+    if not hojas:
+        return redirect("/panel", err="Esa lectura ya no está: volvé a sacar las fotos.")
+    with get_db() as db:
+        assignment = get_assignment(db, hojas["assignment_id"])
+        course = get_edition(db, assignment["edition_id"]) if assignment else None
+    if not assignment or not course:
+        return redirect("/panel")
+    return render(request, "confirmar_fotos.html", assignment=assignment, course=course,
+                  kind=hojas["kind"], hojas=hojas["hojas"], token=token, n_fotos=len(hojas["hojas"]))
+
+
+@app.get("/fotos-pendientes/{token}/{n}")
+def foto_pendiente(request: Request, token: str, n: int):
+    """Una hoja en espera, para la pantalla de revisión. Solo a quien la subió."""
+    user = auth.current_user(request)
+    if not user:
+        return redirect("/login")
+    hoja = archivos.hoja_pendiente(token, user["id"], n)
+    if not hoja:
+        return HTMLResponse("No encontrada", status_code=404)
+    return FileResponse(hoja[0], media_type=hoja[1])
+
+
+@app.post("/entregar/fotos/{token}/rehacer/{n}")
+async def entregar_fotos_rehacer(request: Request, token: str, n: int, foto: UploadFile = File(...)):
+    """Volver a sacar UNA hoja: se reemplaza la foto y se relee solo esa."""
+    user, resp = _require(request, "student")
+    if resp:
+        return resp
+    volver = f"/entregar/fotos/{token}"
+    if not archivos.hojas_pendientes(token, user["id"]):
+        return redirect("/panel", err="Esa lectura ya no está: volvé a sacar las fotos.")
+    try:
+        imagenes = await _leer_fotos([foto])
+    except ValueError as exc:
+        return redirect(volver, err=str(exc))
+    try:
+        texto = transcribir_hojas(imagenes)[0]
+    except LLMError as exc:
+        return redirect(volver, err=f"No se pudo leer la hoja. {exc}")
+    mime, datos = imagenes[0]
+    if not archivos.reemplazar_hoja(token, user["id"], n, mime, datos, texto):
+        return redirect(volver, err="Esa hoja no existe.")
+    return redirect(volver, msg=f"Hoja {n} vuelta a leer. Revisala.")
 
 
 async def _leer_fotos(fotos) -> list:
@@ -1680,6 +1774,7 @@ def entrega(request: Request, sid: int):
         puede_promover=puede_promover, niveles=_niveles(sub),
         detalle_nota=_detalle_nota(sub), incidentes=incidentes,
         embargo=embargo, publica_el=momento_cierre(assignment),
+        fotos=_fotos(sub), corrigio=bool(_diff_transcripcion(sub)),
     )
 
 
@@ -1708,6 +1803,28 @@ def entrega_archivo(request: Request, sid: int):
             "empezáramos a conservarlos, o se entregó pegando el texto."))
     nombre = sub["original_filename"] or "entrega"
     return FileResponse(ruta, filename=nombre)
+
+
+@app.get("/entrega/{sid}/foto/{n}")
+def entrega_foto(request: Request, sid: int, n: int):
+    """Una de las fotos del examen en papel de una entrega. Su autor y el equipo docente."""
+    user = auth.current_user(request)
+    if not user:
+        return redirect("/login")
+    with get_db() as db:
+        sub, assignment, course = _load_submission(db, sid)
+        if not sub:
+            return redirect("/")
+        propio = sub["user_id"] == user["id"]
+        del_equipo = user["role"] in STAFF and can_access_edition(db, user, course["id"])
+        if not (propio or del_equipo):
+            return redirect("/")
+    for foto in _fotos(sub):
+        if foto.get("n") == n:
+            ruta = archivos.ruta_absoluta(foto.get("ruta", ""))
+            if ruta:
+                return FileResponse(ruta, media_type=foto.get("mime") or "image/jpeg")
+    return HTMLResponse("No encontrada", status_code=404)
 
 
 @app.post("/entrega/{sid}/final")
@@ -1746,12 +1863,12 @@ def promover_a_final(request: Request, sid: int):
             " work_text, text_chars, truncated, ai_feedback_md, model_used, error, created_at,"
             " grupo_id, cfg_snapshot, propuesta_text, sin_propuesta, repo_url, repo_resumen,"
             " alerta, niveles, imagenes, paginas, paginas_vistas, archivo_ruta, archivo_bytes,"
-            " archivo_sha256, promovida_de)"
+            " archivo_sha256, promovida_de, fotos, texto_original)"
             " SELECT user_id, assignment_id, 'final', ?, original_filename,"
             " work_text, text_chars, truncated, ai_feedback_md, model_used, error, ?,"
             " ?, cfg_snapshot, propuesta_text, sin_propuesta, repo_url, repo_resumen,"
             " alerta, niveles, imagenes, paginas, paginas_vistas, archivo_ruta, archivo_bytes,"
-            " archivo_sha256, id FROM submissions WHERE id = ?",
+            " archivo_sha256, id, fotos, texto_original FROM submissions WHERE id = ?",
             (estado, utcnow(), grupo["id"] if grupo else None, sid),
         ).lastrowid
 
@@ -1964,7 +2081,8 @@ def admin_final(request: Request, sid: int):
         owner = db.execute("SELECT * FROM users WHERE id = ?", (sub["user_id"],)).fetchone()
         incidentes = _incidentes(db, sub)
     return render(
-        request, "admin_final.html", embargo=publicacion_diferida(assignment), publica_el=momento_cierre(assignment), sub=sub, owner=owner, course=course,
+        request, "admin_final.html", embargo=publicacion_diferida(assignment), publica_el=momento_cierre(assignment),
+        fotos=_fotos(sub), diff_transcripcion=_diff_transcripcion(sub), sub=sub, owner=owner, course=course,
         assignment=assignment, repo_leido=_repo_leido(sub), niveles=_niveles(sub),
         detalle_nota=_detalle_nota(sub), incidentes=incidentes,
         smtp_ok=smtp_configured(),
@@ -3746,18 +3864,21 @@ async def admin_papel_leer(
     except ValueError as exc:
         return redirect(volver, err=str(exc))
     try:
-        transcripcion = transcribe_images(imagenes)
+        textos = transcribir_hojas(imagenes)
     except LLMError as exc:
         return redirect(volver, err=f"No se pudo leer el examen. {exc}")
-
+    # Las fotos quedan en espera y se guardan con la entrega al registrarla, igual que
+    # cuando las sube el propio estudiante.
+    token = archivos.preparar_hojas(user["id"], imagenes, textos, aid, "final")
     return render(request, "admin_papel_confirmar.html", assignment=assignment, course=curso,
-                  alumno=alumno, transcripcion=transcripcion, n_fotos=len(imagenes))
+                  alumno=alumno, transcripcion="\n\n".join(t for t in textos if t.strip()),
+                  n_fotos=len(imagenes), token=token)
 
 
 @app.post("/admin/instancias/{aid}/papel/registrar")
 async def admin_papel_registrar(
     request: Request, aid: int, alumno_id: int = Form(...), texto: str = Form(...),
-    fotos_n: int = Form(0),
+    fotos_n: int = Form(0), token: str = Form(""),
 ):
     """Registra la entrega a nombre del estudiante, dejando constancia de quién la subió."""
     user, resp = _require(request, *STAFF)
@@ -3802,6 +3923,14 @@ async def admin_papel_registrar(
              tele.get("latencia_ms"), tele.get("finish_reason"), user["id"]),
         )
         sid = cur.lastrowid
+        if token:
+            try:
+                guardadas = archivos.consolidar_hojas(token, user["id"], sid)
+                if guardadas:
+                    db.execute("UPDATE submissions SET fotos = ? WHERE id = ?",
+                               (json.dumps(guardadas, ensure_ascii=False), sid))
+            except OSError:
+                pass
     # Mismo cierre que las entregas que sube el propio estudiantado: se calcula la
     # calificación, y si la instancia no lleva firma humana la entrega queda firme acá.
     # Que la haya cargado el equipo docente cambia quién la subió, no cuánto vale ni por

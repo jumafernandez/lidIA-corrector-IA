@@ -17,6 +17,13 @@
 <section class="card">
   <input type="hidden" name="alumno_id" value="{{ alumno.id }}">
   <input type="hidden" name="fotos_n" value="{{ n_fotos }}">
+  <input type="hidden" name="token" value="{{ token }}">
+  <div class="hojas-tira" style="margin-bottom: 12px">
+    {% for n in range(1, n_fotos + 1) %}
+    <a href="{{ base }}/fotos-pendientes/{{ token }}/{{ n }}" target="_blank" rel="noopener">
+      <img src="{{ base }}/fotos-pendientes/{{ token }}/{{ n }}" alt="Hoja {{ n }}"><span>Hoja {{ n }}</span></a>
+    {% endfor %}
+  </div>
   <textarea name="texto" rows="20" class="crudo-edit" required>{{ transcripcion }}</textarea>
   <div class="row-gap" style="margin-top: 12px">
     <button type="submit" class="btn accent">Registrar y corregir</button>

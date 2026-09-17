@@ -12,9 +12,12 @@ Consecuencia a tener presente: el respaldo pasa a ser dos cosas. Como todo vive 
 `DATA_DIR`, copiar ese directorio entero alcanza para llevarse la base y los archivos.
 """
 import hashlib
+import json
 import os
 import re
+import secrets
 import shutil
+import time
 
 from .db import DATA_DIR
 
@@ -74,6 +77,122 @@ def ruta_absoluta(relativa: str) -> str | None:
 def borrar(submission_id: int) -> None:
     """Borra los archivos de una entrega. Se usa al eliminar la entrega."""
     shutil.rmtree(_carpeta(submission_id), ignore_errors=True)
+
+
+# ------------------------------------------------------------ hojas de un examen en papel
+#
+# Entre sacar las fotos y confirmar la entrega hay una pantalla en el medio, y la entrega
+# —con su carpeta— todavía no existe. Las fotos esperan acá, con la lectura de cada hoja,
+# y al confirmar se mudan a la carpeta de la entrega. Lo que nadie confirma se limpia solo.
+PENDIENTES = os.path.join(RAIZ, "_pendientes")
+EXTENSION = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
+VIDA_PENDIENTE = 24 * 3600
+
+
+def _pendiente(token: str) -> str:
+    # El token lo generamos nosotros, pero termina en una ruta: se filtra igual.
+    limpio = SEGURO.sub("", token or "")
+    return os.path.join(PENDIENTES, limpio) if limpio and limpio == token else ""
+
+
+def _escribir_meta(carpeta: str, meta: dict) -> None:
+    with open(os.path.join(carpeta, "meta.json"), "w", encoding="utf-8") as f:
+        json.dump(meta, f, ensure_ascii=False)
+
+
+def preparar_hojas(user_id: int, imagenes: list, textos: list, assignment_id: int, kind: str) -> str:
+    """Deja las fotos y su lectura a la espera de la confirmación. Devuelve el token."""
+    token = secrets.token_urlsafe(18)
+    carpeta = _pendiente(token)
+    os.makedirs(carpeta, exist_ok=True)
+    hojas = []
+    for n, ((mime, datos), texto) in enumerate(zip(imagenes, textos), 1):
+        nombre = f"hoja-{n:02d}{EXTENSION.get(mime, '.jpg')}"
+        with open(os.path.join(carpeta, nombre), "wb") as f:
+            f.write(datos)
+        hojas.append({"n": n, "archivo": nombre, "mime": mime, "texto": texto})
+    _escribir_meta(carpeta, {"user_id": int(user_id), "assignment_id": int(assignment_id),
+                             "kind": kind, "creado": time.time(), "hojas": hojas})
+    return token
+
+
+def hojas_pendientes(token: str, user_id: int) -> dict | None:
+    """Lo que espera bajo ese token, si es de esta persona. None si no está o no es suyo."""
+    carpeta = _pendiente(token)
+    meta_ruta = os.path.join(carpeta, "meta.json") if carpeta else ""
+    if not meta_ruta or not os.path.isfile(meta_ruta):
+        return None
+    with open(meta_ruta, encoding="utf-8") as f:
+        meta = json.load(f)
+    if meta.get("user_id") != int(user_id):
+        return None
+    meta["token"] = token
+    return meta
+
+
+def hoja_pendiente(token: str, user_id: int, n: int) -> tuple | None:
+    """(ruta absoluta, mime) de una hoja en espera, o None."""
+    meta = hojas_pendientes(token, user_id)
+    for h in (meta or {}).get("hojas", []):
+        if h["n"] == n:
+            ruta = os.path.join(_pendiente(token), h["archivo"])
+            return (ruta, h["mime"]) if os.path.isfile(ruta) else None
+    return None
+
+
+def reemplazar_hoja(token: str, user_id: int, n: int, mime: str, datos: bytes, texto: str) -> bool:
+    """Cambia una hoja en espera por otra foto, con su nueva lectura."""
+    meta = hojas_pendientes(token, user_id)
+    if not meta:
+        return False
+    carpeta = _pendiente(token)
+    for h in meta["hojas"]:
+        if h["n"] == n:
+            viejo = os.path.join(carpeta, h["archivo"])
+            if os.path.isfile(viejo):
+                os.remove(viejo)
+            h["archivo"] = f"hoja-{n:02d}{EXTENSION.get(mime, '.jpg')}"
+            h["mime"], h["texto"] = mime, texto
+            with open(os.path.join(carpeta, h["archivo"]), "wb") as f:
+                f.write(datos)
+            _escribir_meta(carpeta, meta)
+            return True
+    return False
+
+
+def consolidar_hojas(token: str, user_id: int, submission_id: int) -> list:
+    """Muda las hojas en espera a la carpeta de la entrega. Devuelve [{n, ruta, mime}]."""
+    meta = hojas_pendientes(token, user_id)
+    if not meta:
+        return []
+    origen, destino = _pendiente(token), _carpeta(submission_id)
+    os.makedirs(destino, exist_ok=True)
+    guardadas = []
+    for h in meta["hojas"]:
+        de = os.path.join(origen, h["archivo"])
+        if not os.path.isfile(de):
+            continue
+        a = os.path.join(destino, h["archivo"])
+        shutil.move(de, a)
+        guardadas.append({"n": h["n"], "ruta": os.path.relpath(a, DATA_DIR), "mime": h["mime"]})
+    shutil.rmtree(origen, ignore_errors=True)
+    return guardadas
+
+
+def limpiar_pendientes(vida: int = VIDA_PENDIENTE) -> int:
+    """Borra las lecturas que nadie confirmó en un día. Devuelve cuántas sacó."""
+    if not os.path.isdir(PENDIENTES):
+        return 0
+    sacadas = 0
+    for nombre in os.listdir(PENDIENTES):
+        carpeta = os.path.join(PENDIENTES, nombre)
+        try:
+            if time.time() - os.path.getmtime(carpeta) > vida:
+                shutil.rmtree(carpeta, ignore_errors=True)
+                sacadas += 1
+        except OSError:
+            continue
+    return sacadas
 
 
 def limpiar_huerfanos() -> int:

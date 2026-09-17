@@ -17,6 +17,26 @@
   original</a> ({{ sub.original_filename }}{% if sub.archivo_bytes %} · {{ (sub.archivo_bytes / 1024)|round|int }} KB{% endif %})
   — es lo que se entregó, tal cual. Lo que Lidia leyó es el texto extraído de ahí.</p>
 {% endif %}
+{% if fotos %}
+<section class="card">
+  <h2>Las hojas, tal como las fotografió</h2>
+  <div class="hojas-tira">
+    {% for f in fotos %}
+    <a href="{{ base }}/entrega/{{ sub.id }}/foto/{{ f.n }}" target="_blank" rel="noopener">
+      <img src="{{ base }}/entrega/{{ sub.id }}/foto/{{ f.n }}" alt="Hoja {{ f.n }}"><span>Hoja {{ f.n }}</span></a>
+    {% endfor %}
+  </div>
+  {% if diff_transcripcion %}
+  <details class="alt" open>
+    <summary><strong>El estudiante corrigió la lectura antes de entregar.</strong> Tachado lo que sacó,
+      subrayado lo que agregó: cotejalo con la hoja.</summary>
+    <div class="dif">{{ diff_transcripcion|safe }}</div>
+  </details>
+  {% else %}
+  <p class="muted small">Entregó la lectura tal como salió del modelo, sin corregirla.</p>
+  {% endif %}
+</section>
+{% endif %}
 {% if sub.imagenes %}
 <div class="flash warn">La entrega trae <strong>{{ sub.imagenes }} {{ 'imágenes' if sub.imagenes != 1 else 'imagen' }}</strong>
   (gráficos, esquemas, capturas o tablas como figura). <strong>Lidia corrige sobre el texto y no las ve</strong>,

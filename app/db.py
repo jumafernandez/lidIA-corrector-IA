@@ -624,19 +624,14 @@ def init_db():
             # que hablaba de la devolución y no de la persona. Un 3 salía con sello verde.
             db.execute("ALTER TABLE assignments ADD COLUMN nota_aprobacion REAL NOT NULL DEFAULT 4")
 
-        cols = {r["name"] for r in db.execute("PRAGMA table_info(assignments)")}
-        if "nota_aprobacion" not in cols:
-            # 029 — Con cuánto se aprueba cada instancia. Hasta acá el sistema no tenía
-            # noción de aprobado o desaprobado: había una nota, y un estado «aprobada»
-            # que hablaba de la devolución y no de la persona. Un 3 salía con sello verde.
-            db.execute("ALTER TABLE assignments ADD COLUMN nota_aprobacion REAL NOT NULL DEFAULT 4")
-
-        cols = {r["name"] for r in db.execute("PRAGMA table_info(assignments)")}
-        if "nota_aprobacion" not in cols:
-            # 029 — Con cuánto se aprueba cada instancia. Hasta acá el sistema no tenía
-            # noción de aprobado o desaprobado: había una nota, y un estado «aprobada»
-            # que hablaba de la devolución y no de la persona. Un 3 salía con sello verde.
-            db.execute("ALTER TABLE assignments ADD COLUMN nota_aprobacion REAL NOT NULL DEFAULT 4")
+        cols = {r["name"] for r in db.execute("PRAGMA table_info(submissions)")}
+        if "fotos" not in cols:
+            # 030 — Las fotos de un examen en papel, guardadas con la entrega, y lo que el
+            # modelo leyó antes de que el estudiante lo corrigiera. Hasta acá las fotos se
+            # transcribían y se tiraban: a la entrega llegaba solo el texto, y nadie podía
+            # cotejar una lectura dudosa contra la hoja.
+            db.execute("ALTER TABLE submissions ADD COLUMN fotos TEXT NOT NULL DEFAULT ''")
+            db.execute("ALTER TABLE submissions ADD COLUMN texto_original TEXT NOT NULL DEFAULT ''")
 
         # Relleno para las cuentas que ya existían, donde no hay registro de cuándo se
         # fijó la contraseña. Se usa la evidencia de que la persona entró alguna vez:

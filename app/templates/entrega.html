@@ -24,6 +24,21 @@
 la devolución no evalúa si el trabajo es coherente con lo que se propuso.</div>
 {% endif %}
 
+{% if fotos %}
+<section class="card">
+  <h2>Las hojas del examen</h2>
+  <div class="hojas-tira">
+    {% for f in fotos %}
+    <a href="{{ base }}/entrega/{{ sub.id }}/foto/{{ f.n }}" target="_blank" rel="noopener">
+      <img src="{{ base }}/entrega/{{ sub.id }}/foto/{{ f.n }}" alt="Hoja {{ f.n }}"><span>Hoja {{ f.n }}</span></a>
+    {% endfor %}
+  </div>
+  {% if corrigio and user.role == 'student' %}
+  <p class="muted small">Corregiste la lectura antes de entregar: el equipo docente ve la foto, lo que leyó Lidia y lo que cambiaste.</p>
+  {% endif %}
+</section>
+{% endif %}
+
 {% if user.role in ('admin', 'docente') and sub.kind == 'final' and sub.status == 'pendiente' %}
   <p><a class="btn primary" href="{{ base }}/admin/final/{{ sub.id }}">Revisar y validar esta entrega</a></p>
 {% endif %}

@@ -201,14 +201,47 @@
   <details class="alt">
     <summary>📷 …o subí fotos de tu examen resuelto en papel</summary>
     <form method="post" action="{{ base }}/entregar/fotos" enctype="multipart/form-data"
-          data-busy="1" data-lidia="Lidia está leyendo tu examen">
+          data-busy="1" data-lidia="Lidia está leyendo tu examen" class="fotos-form">
       <input type="hidden" name="kind" value="{{ 'final' if unica else 'practica' }}">
       <input type="hidden" name="assignment_id" value="{{ assignment.id }}">
-      <input type="file" name="fotos" accept="image/jpeg,image/png,image/webp" multiple required>
-      <p class="muted small">Hasta 6 fotos (JPG o PNG), en orden y con buena luz. Lidia las transcribe y te muestra
-      la lectura para que la revises: <strong>nada se entrega hasta que confirmes</strong> en el paso siguiente.</p>
+      {# Dos caminos al mismo campo: la cámara del teléfono, de a una hoja por vez, y la galería,
+         de a varias. Abajo se listan en orden y se pueden quitar. #}
+      <input type="file" name="fotos" accept="image/jpeg,image/png,image/webp" multiple data-fotos>
+      <input type="file" accept="image/*" capture="environment" hidden data-camara>
+      <p><button type="button" class="btn" data-sacar>📷 Sacar foto con la cámara</button></p>
+      <ol class="fotos-lista" data-lista hidden></ol>
+      <p class="muted small">Hasta 6 fotos (JPG o PNG), en orden y con buena luz. Lidia las lee y te muestra
+      cada hoja con su lectura para que la revises: <strong>nada se entrega hasta que confirmes</strong>
+      en el paso siguiente.</p>
       <button type="submit" class="btn">Leer mi examen</button>
     </form>
+    <script>
+    (function () {
+      const f = document.querySelector("form.fotos-form"); if (!f) return;
+      const principal = f.querySelector("[data-fotos]"), camara = f.querySelector("[data-camara]"),
+            lista = f.querySelector("[data-lista]");
+      let hojas = [];
+      const clave = a => `${a.name}|${a.size}|${a.lastModified}`;
+      function pintar() {
+        try { const dt = new DataTransfer(); hojas.forEach(a => dt.items.add(a)); principal.files = dt.files; }
+        catch (e) { return; }   // navegador viejo: queda lo que eligió en el campo, sin lista
+        lista.innerHTML = ""; lista.hidden = hojas.length === 0;
+        hojas.forEach((a, i) => {
+          const li = document.createElement("li"); li.textContent = `Hoja ${i + 1} · ${a.name} `;
+          const q = document.createElement("button"); q.type = "button"; q.className = "btn small ghost"; q.textContent = "Quitar";
+          q.addEventListener("click", () => { hojas.splice(i, 1); pintar(); });
+          li.appendChild(q); lista.appendChild(li);
+        });
+      }
+      camara.addEventListener("change", () => { hojas.push(...camara.files); camara.value = ""; pintar(); });
+      principal.addEventListener("change", () => {
+        const vistas = new Set(hojas.map(clave));
+        [...principal.files].forEach(a => { if (!vistas.has(clave(a))) hojas.push(a); });
+        pintar();
+      });
+      f.querySelector("[data-sacar]").addEventListener("click", () => camara.click());
+    })();
+    </script>
   </details>
   {% endif %}
   {% elif user.active and ventana_abierta %}

@@ -171,6 +171,26 @@ main a:hover, .foot a:hover { color: #0a4d54; -webkit-text-fill-color: #0a4d54; 
 .pill-ok { background: var(--ok-bg); color: var(--ok-ink); }
 .pill-warn { background: var(--warn-bg); color: var(--warn-ink); }
 .pill-bad { background: var(--bad-bg); color: var(--bad-ink); }
+
+/* Examen en papel: cada hoja al lado de su lectura, y la tira de miniaturas en las fichas. */
+.hojas { display: grid; gap: 18px; }
+.hoja { display: grid; grid-template-columns: minmax(180px, 1fr) 2fr; gap: 18px; align-items: start; }
+@media (max-width: 760px) { .hoja { grid-template-columns: 1fr; } }
+.hoja img { width: 100%; border: 1px solid var(--line); border-radius: var(--radius); background: #fff; }
+.hoja textarea { width: 100%; min-height: 220px; font-family: var(--font-body); line-height: 1.55; }
+.hoja .rehacer { margin-top: 8px; }
+.hojas-tira { display: flex; gap: 12px; flex-wrap: wrap; }
+.hojas-tira a { display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: .82rem; color: var(--muted); text-decoration: none; }
+.hojas-tira img { width: 120px; height: 160px; object-fit: cover; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+/* Lo que el estudiante corrigió sobre la lectura: tachado lo que sacó, subrayado lo que agregó. */
+.dif { white-space: pre-wrap; font-family: var(--font-body); line-height: 1.7; padding: 10px 0; }
+.dif del { background: var(--bad-bg); color: var(--bad-ink); text-decoration: line-through; padding: 0 2px; }
+.dif ins { background: var(--ok-bg); color: var(--ok-ink); text-decoration: none; border-bottom: 2px solid var(--ok-ink); padding: 0 2px; }
+.fotos-lista { margin: 8px 0 0; padding-left: 20px; font-size: .9rem; }
+.fotos-lista li { margin: 4px 0; }
+/* `hidden` es una declaración de intención: nada de lo de arriba —que le da display a los
+   inputs, por ejemplo— debería poder mostrarlo igual. */
+[hidden] { display: none !important; }
 .pill-mini { font-size: .74rem; padding: 2px 10px; }
 
 /* ---------- formularios ---------- */

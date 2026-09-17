@@ -7,31 +7,59 @@
   {{ lidia('greet') }}
   <div>
     <h1>Esto es lo que leí</h1>
-    <p class="muted">{{ course.name }} · {{ assignment.name }} · {{ n_fotos }} foto{{ 's' if n_fotos != 1 }}.
-    Compará con tu hoja antes de confirmar: <strong>todavía no se registró nada</strong>.</p>
+    <p class="muted">{{ course.name }} · {{ assignment.name }} · {{ n_fotos }} hoja{{ 's' if n_fotos != 1 }}.
+    Compará cada hoja con su lectura: <strong>todavía no se registró nada</strong>.</p>
   </div>
 </div>
 
-<section class="card">
-  <h2>Transcripción de tu examen</h2>
-  <pre class="worktext tall">{{ transcripcion }}</pre>
-  <p class="muted small">Si algo se leyó mal o dice [ilegible], volvé atrás y sacá las fotos de nuevo —
-  con buena luz, la hoja completa y sin dedos encima. La transcripción no se edita: lo que vale es lo
-  que está en el papel, y el equipo docente lo tiene para cotejar.</p>
+{# Cada hoja al lado de su texto. El texto se puede corregir: una palabra mal leída no debería
+   costar puntos. Lo que el modelo leyó se guarda igual, y el equipo docente lo ve junto a la foto
+   y a lo que quedó: corregir es legítimo; que no se note, no. #}
+<div class="hojas">
+  {% for h in hojas %}
+  <section class="card hoja">
+    <div>
+      <a href="{{ base }}/fotos-pendientes/{{ token }}/{{ h.n }}" target="_blank" rel="noopener">
+        <img src="{{ base }}/fotos-pendientes/{{ token }}/{{ h.n }}" alt="Hoja {{ h.n }}"></a>
+      <form method="post" action="{{ base }}/entregar/fotos/{{ token }}/rehacer/{{ h.n }}"
+            enctype="multipart/form-data" class="rehacer" data-busy="1" data-lidia="Lidia está leyendo la hoja {{ h.n }}">
+        <label class="btn small ghost" style="margin: 0; cursor: pointer">Volver a sacar esta hoja
+          <input type="file" name="foto" accept="image/*" capture="environment" hidden
+                 onchange="this.form.requestSubmit()"></label>
+      </form>
+    </div>
+    <div>
+      <h2 style="margin-top: 0">Hoja {{ h.n }}</h2>
+      <textarea name="texto_hoja_{{ h.n }}" form="form-confirmar" placeholder="Nada legible en esta hoja">{{ h.texto }}</textarea>
+      <p class="muted small">Si algo se leyó mal, corregilo acá. El equipo docente ve la foto, lo que
+      leyó Lidia y lo que cambiaste.</p>
+    </div>
+  </section>
+  {% endfor %}
+</div>
 
-  <form method="post" action="{{ base }}/entregar"
-        data-confirm="{{ 'Vas a registrar tu ÚNICA entrega de esta evaluación con esta transcripción. ¿Confirmás?' if kind == 'final' else 'Esto consume 1 de tus devoluciones con esta transcripción. ¿Confirmás?' }}"
+<section class="card">
+  <form method="post" action="{{ base }}/entregar" id="form-confirmar"
+        data-confirm="{{ 'Vas a registrar tu ÚNICA entrega de esta evaluación con esta lectura. ¿Confirmás?' if kind == 'final' else 'Esto consume 1 de tus devoluciones con esta lectura. ¿Confirmás?' }}"
         data-lidia="{{ 'Lidia está corrigiendo tu examen' if kind == 'final' else 'Lidia está leyendo tu examen' }}">
     <input type="hidden" name="kind" value="{{ kind }}">
     <input type="hidden" name="assignment_id" value="{{ assignment.id }}">
     <input type="hidden" name="origen" value="foto">
-    <input type="hidden" name="fotos_n" value="{{ n_fotos }}">
-    <textarea name="texto" hidden>{{ transcripcion }}</textarea>
+    <input type="hidden" name="token" value="{{ token }}">
     <div class="row-gap">
       <button type="submit" class="btn {{ 'accent' if kind == 'final' else 'primary' }}">
         {{ 'Confirmar y entregar' if kind == 'final' else 'Confirmar y pedir devolución' }}</button>
-      <a class="btn ghost" href="{{ base }}/panel/instancia/{{ assignment.id }}">Volver y sacar las fotos de nuevo</a>
+      <a class="btn ghost" href="{{ base }}/panel/instancia/{{ assignment.id }}">Volver y sacar todo de nuevo</a>
     </div>
+    <p class="muted small" style="margin-top: 10px">Las fotos se guardan con tu entrega, tal como las sacaste.</p>
   </form>
 </section>
+<script>
+// Los cuadros crecen con lo que tienen: una barra de scroll adentro obliga a releer a ciegas
+// justo cuando la persona está comparando la lectura con su hoja.
+document.querySelectorAll(".hoja textarea").forEach(c => {
+  const crecer = () => { c.style.height = "auto"; c.style.height = Math.max(c.scrollHeight + 2, 220) + "px"; };
+  c.addEventListener("input", crecer); crecer();
+});
+</script>
 {% endblock %}

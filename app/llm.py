@@ -953,8 +953,31 @@ REGLAS:
 - Lo que no se pueda leer con certeza: [ilegible]. Lo tachado se omite (el estudiante lo descartó).
 - Si es un multiple choice, transcribí las marcas como «número-letra», una por línea (ej.: 1-b).
 - No transcribas datos personales del encabezado (nombre, DNI, legajo): empezá desde las respuestas.
+- Separá la transcripción de cada foto con una línea que diga exactamente === HOJA n === (n es el
+  número de la foto, empezando en 1), incluso si una respuesta sigue de una hoja a la otra.
 - Si las fotos no muestran un examen resuelto, respondé exactamente: NO_ES_UN_EXAMEN
 """
+
+MARCA_HOJA = re.compile(r"^\s*=+\s*HOJA\s+(\d+)\s*=+\s*$", re.MULTILINE | re.IGNORECASE)
+
+
+def transcribir_hojas(fotos: list) -> list[str]:
+    """La transcripción de cada foto por separado, en el orden en que llegaron.
+
+    Es una sola llamada al modelo, que separa las hojas con una marca. Si la marca no viene
+    o no cuadra con la cantidad de fotos, todo el texto queda bajo la primera hoja: peor de
+    leer, pero no se pierde nada.
+    """
+    texto = transcribe_images(fotos)
+    partes = MARCA_HOJA.split(texto)          # [antes, n1, texto1, n2, texto2, ...]
+    if len(partes) >= 3:
+        cuerpos = [partes[i].strip() for i in range(2, len(partes), 2)]
+        previo = partes[0].strip()
+        if previo:
+            cuerpos[0] = (previo + "\n\n" + cuerpos[0]).strip()
+        if len(cuerpos) == len(fotos):
+            return cuerpos
+    return [texto.strip()] + [""] * (len(fotos) - 1)
 
 
 def transcribe_images(fotos: list) -> str:
