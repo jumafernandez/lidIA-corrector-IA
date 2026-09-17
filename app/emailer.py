@@ -112,7 +112,7 @@ def devolucion_aprobada(alumno: str, course, assignment, feedback_md: str, nota=
     inst = assignment["name"]
     asunto = f"Tu devolución de «{inst}» — {cursada}" if cursada else f"Tu devolución de «{inst}»"
 
-    intro = (f"Hola {alumno}: el equipo docente revisó y firmó la devolución de tu entrega "
+    intro = (f"Hola {alumno}: el equipo docente revisó y validó la devolución de tu entrega "
              f"de «{inst}».")
     nota_txt = "" if nota is None else f"\n\nNota: {nota:g} (de 10)."
     nota_html = "" if nota is None else f'<p class="nota">Nota: {nota:g} de 10</p>'

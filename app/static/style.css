@@ -170,6 +170,7 @@ main a:hover, .foot a:hover { color: #0a4d54; -webkit-text-fill-color: #0a4d54; 
 }
 .pill-ok { background: var(--ok-bg); color: var(--ok-ink); }
 .pill-warn { background: var(--warn-bg); color: var(--warn-ink); }
+.pill-bad { background: var(--bad-bg); color: var(--bad-ink); }
 .pill-mini { font-size: .74rem; padding: 2px 10px; }
 
 /* ---------- formularios ---------- */

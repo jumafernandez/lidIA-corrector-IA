@@ -59,6 +59,6 @@ así que no va a poder entrar. Cargáselo acá abajo.</div>
     </form>
     {% endif %}
   </div>
-  {{ info("La coordinación no se puede deshabilitar desde acá." if doc.role == 'admin' else "Un docente deshabilitado no puede ingresar, pero conserva sus cursos asignados. Eliminarlo solo es posible si no firmó ninguna corrección final: su firma es parte del historial.") }}
+  {{ info("La coordinación no se puede deshabilitar desde acá." if doc.role == 'admin' else "Un docente deshabilitado no puede ingresar, pero conserva sus cursos asignados. Eliminarlo solo es posible si no validó ninguna corrección final: su validación es parte del historial.") }}
 </section>
 {% endblock %}

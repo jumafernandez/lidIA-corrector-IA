@@ -144,7 +144,7 @@
   {% if unica %}
   <p class="muted">Esta evaluación se entrega <strong>una sola vez</strong>: lo que presentes queda como
   tu entrega definitiva y no se vuelve a subir.
-  {% if assignment.requiere_revision %}La corrección la revisa y la firma el equipo docente.{% else %}Lidia la corrige y te da la calificación.{% endif %}</p>
+  {% if assignment.requiere_revision %}La corrección la revisa y la valida el equipo docente.{% else %}Lidia la corrige y te da la calificación.{% endif %}</p>
   {% else %}
   <p class="muted">Cada devolución evalúa una <strong>entrega completa</strong> contra la rúbrica. Usalas como si presentaras de verdad:
   una entrega inmadura también consume el intento.{% if assignment.max_preguntas %} Sobre cada devolución podés hacer hasta {{ assignment.max_preguntas }} preguntas aclaratorias.{% endif %}
@@ -222,12 +222,16 @@
   <div class="row-between">
     <h2>{{ 'Tu entrega' if unica else 'Entrega definitiva' }}</h2>
     {% if final %}
-      <span class="pill {{ 'pill-ok' if final.status == 'aprobada' else 'pill-warn' }}">{{ 'Aprobada' if final.status == 'aprobada' else 'En revisión docente' }}</span>
+      {% if embargo %}
+      <span class="pill pill-warn">Entregada</span>
+      {% else %}
+      <span class="pill {{ 'pill-ok' if final.status == 'aprobada' else 'pill-warn' }}">{{ 'Devolución publicada' if final.status == 'aprobada' else 'En revisión docente' }}</span>
+      {% endif %}
     {% endif %}
   </div>
   {% if final %}
     <p>{{ 'Tu entrega' if unica else 'Tu entrega definitiva' }} del {{ final.created_at|fecha }} hs
-      {% if final.status == 'aprobada' %} ya tiene la devolución del equipo docente.{% else %} está siendo revisada por el equipo docente.{% endif %}
+      {% if embargo %} quedó registrada. La devolución y la calificación se publican al cierre, el {{ publica_el|fecha_corta }}.{% elif final.status == 'aprobada' %} ya tiene la devolución del equipo docente.{% else %} está siendo revisada por el equipo docente.{% endif %}
       <a href="{{ base }}/entrega/{{ final.id }}">Ver detalle</a></p>
   {% elif user.active and ventana_abierta %}
     {# La definitiva no se sube: es una versión que ya recibió devolución y que decidís dar
@@ -235,7 +239,7 @@
        puerta a que lo que firma el docente no sea lo que Lidia evaluó. #}
     {% if ultima %}
       <p class="muted">Es la versión que ya presentaste, la que decidas dar por buena. No se
-      vuelve a corregir: va con la devolución que ya leíste, y la revisa y la firma el equipo docente.</p>
+      vuelve a corregir: va con la devolución que ya leíste, y la revisa y la valida el equipo docente.</p>
       <p>Última versión presentada: <strong>{{ ultima.created_at|fecha }} hs</strong>
         {% if ultima.original_filename %}· {{ ultima.original_filename }}{% endif %}
         · <a href="{{ base }}/entrega/{{ ultima.id }}">ver su devolución</a></p>
@@ -265,8 +269,8 @@
         <td>{{ e.created_at|fecha }}</td>
         <td>{{ 'Definitiva' if e.kind == 'final' else 'Mejorable' }}</td>
         <td>{{ e.original_filename or 'texto pegado' }}{% if e.autor and e.autor != user.full_name %} <span class="muted small">· {{ e.autor|nombre_pila }}</span>{% endif %}</td>
-        <td><span class="pill pill-mini {{ 'pill-ok' if e.status in ('ok','aprobada') else 'pill-warn' }}">
-          {{ {'ok':'Con devolución','pendiente':'En revisión','aprobada':'Aprobada','reabierta':'Reabierta','error':'Error'}[e.status] }}</span></td>
+        <td><span class="pill pill-mini {{ 'pill-warn' if (embargo and e.kind == 'final') else ('pill-ok' if e.status in ('ok','aprobada') else 'pill-warn') }}">
+          {{ 'Entregada' if (embargo and e.kind == 'final') else {'ok':'Con devolución','pendiente':'En revisión','aprobada':'Devolución publicada','reabierta':'Reabierta','error':'Error'}[e.status] }}</span></td>
         <td><a href="{{ base }}/entrega/{{ e.id }}">Ver</a></td>
       </tr>
     {% endfor %}

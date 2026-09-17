@@ -617,15 +617,42 @@ def init_db():
             # es confuso y hace dudar de si el mensaje es legítimo.
             db.execute("ALTER TABLE users ADD COLUMN clave_fijada_at TEXT NOT NULL DEFAULT ''")
 
+        cols = {r["name"] for r in db.execute("PRAGMA table_info(assignments)")}
+        if "nota_aprobacion" not in cols:
+            # 029 — Con cuánto se aprueba cada instancia. Hasta acá el sistema no tenía
+            # noción de aprobado o desaprobado: había una nota, y un estado «aprobada»
+            # que hablaba de la devolución y no de la persona. Un 3 salía con sello verde.
+            db.execute("ALTER TABLE assignments ADD COLUMN nota_aprobacion REAL NOT NULL DEFAULT 4")
+
+        cols = {r["name"] for r in db.execute("PRAGMA table_info(assignments)")}
+        if "nota_aprobacion" not in cols:
+            # 029 — Con cuánto se aprueba cada instancia. Hasta acá el sistema no tenía
+            # noción de aprobado o desaprobado: había una nota, y un estado «aprobada»
+            # que hablaba de la devolución y no de la persona. Un 3 salía con sello verde.
+            db.execute("ALTER TABLE assignments ADD COLUMN nota_aprobacion REAL NOT NULL DEFAULT 4")
+
+        cols = {r["name"] for r in db.execute("PRAGMA table_info(assignments)")}
+        if "nota_aprobacion" not in cols:
+            # 029 — Con cuánto se aprueba cada instancia. Hasta acá el sistema no tenía
+            # noción de aprobado o desaprobado: había una nota, y un estado «aprobada»
+            # que hablaba de la devolución y no de la persona. Un 3 salía con sello verde.
+            db.execute("ALTER TABLE assignments ADD COLUMN nota_aprobacion REAL NOT NULL DEFAULT 4")
+
         # Relleno para las cuentas que ya existían, donde no hay registro de cuándo se
         # fijó la contraseña. Se usa la evidencia de que la persona entró alguna vez:
         # haber usado un enlace, tener sesión, o haber entregado algo. Quien no tiene
         # ninguna de las tres nunca entró —y a esa persona le corresponde una bienvenida,
         # no un «alguien pidió restablecer tu contraseña» de algo que nunca tuvo.
+        # `clave_enlaces` la crea `claves.init_claves_db()`, que corre DESPUÉS de esto: en una
+        # instalación nueva todavía no existe, y consultarla tiraba abajo el arranque entero.
+        # Sin la tabla no hay enlaces usados que mirar, y con las otras dos pistas alcanza.
+        hay_enlaces = db.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'clave_enlaces'").fetchone()
+        por_enlace = ("  (SELECT MAX(e.usado_at) FROM clave_enlaces e"
+                      "    WHERE e.user_id = users.id AND e.usado_at IS NOT NULL)," if hay_enlaces else "")
         db.execute(
             "UPDATE users SET clave_fijada_at = COALESCE("
-            "  (SELECT MAX(e.usado_at) FROM clave_enlaces e"
-            "    WHERE e.user_id = users.id AND e.usado_at IS NOT NULL),"
+            + por_enlace +
             "  (SELECT MIN(s.created_at) FROM sessions s WHERE s.user_id = users.id),"
             "  (SELECT MIN(x.created_at) FROM submissions x WHERE x.user_id = users.id),"
             "  '')"
@@ -833,6 +860,51 @@ def momento_cierre(assignment) -> str:
     reloj del servidor, nunca al de la máquina de quien rinde, que puede estar corrido.
     """
     return _momento((assignment["fecha_cierre"] or "").strip(), inicio=False)
+
+
+def publicacion_diferida(assignment) -> bool:
+    """¿La devolución de la entrega definitiva espera al cierre de la instancia?
+
+    En un examen con hora de cierre —escrito o multiple choice—, quien entrega a los diez
+    minutos no puede ver la corrección mientras el resto sigue rindiendo: la devolución
+    trae las respuestas esperadas. Se publica al cierre, esté validada o no, y hasta
+    entonces no se manda correo ni nota al campus. Una práctica abierta con plazo no es
+    un examen: ahí la devolución inmediata es justamente el punto.
+    """
+    if "tipo" not in assignment.keys() or assignment["tipo"] not in ("escrito", "choice"):
+        return False
+    hasta = momento_cierre(assignment)
+    return bool(hasta) and ahora_local() <= hasta
+
+
+def publicacion_diferida(assignment) -> bool:
+    """¿La devolución de la entrega definitiva espera al cierre de la instancia?
+
+    En un examen con hora de cierre —escrito o multiple choice—, quien entrega a los diez
+    minutos no puede ver la corrección mientras el resto sigue rindiendo: la devolución
+    trae las respuestas esperadas. Se publica al cierre, esté validada o no, y hasta
+    entonces no se manda correo ni nota al campus. Una práctica abierta con plazo no es
+    un examen: ahí la devolución inmediata es justamente el punto.
+    """
+    if "tipo" not in assignment.keys() or assignment["tipo"] not in ("escrito", "choice"):
+        return False
+    hasta = momento_cierre(assignment)
+    return bool(hasta) and ahora_local() <= hasta
+
+
+def publicacion_diferida(assignment) -> bool:
+    """¿La devolución de la entrega definitiva espera al cierre de la instancia?
+
+    En un examen con hora de cierre —escrito o multiple choice—, quien entrega a los diez
+    minutos no puede ver la corrección mientras el resto sigue rindiendo: la devolución
+    trae las respuestas esperadas. Se publica al cierre, esté validada o no, y hasta
+    entonces no se manda correo ni nota al campus. Una práctica abierta con plazo no es
+    un examen: ahí la devolución inmediata es justamente el punto.
+    """
+    if "tipo" not in assignment.keys() or assignment["tipo"] not in ("escrito", "choice"):
+        return False
+    hasta = momento_cierre(assignment)
+    return bool(hasta) and ahora_local() <= hasta
 
 
 def ahora_local() -> str:

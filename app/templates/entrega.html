@@ -9,9 +9,13 @@
 
 <div class="row-between">
   <h1>{{ 'Entrega definitiva' if sub.kind == 'final' else 'Devolución de tu entrega' }}</h1>
+  {% if embargo %}
+  <span class="pill pill-warn">Entregada</span>
+  {% else %}
   <span class="pill {{ 'pill-ok' if sub.status in ('ok','aprobada') else 'pill-warn' }}">
-    {{ {'ok':'Con devolución','pendiente':'En revisión docente','aprobada':'Aprobada','reabierta':'Reabierta','error':'Error'}[sub.status] }}
+    {{ {'ok':'Con devolución','pendiente':'En revisión docente','aprobada':'Devolución publicada','reabierta':'Reabierta','error':'Error'}[sub.status] }}
   </span>
+  {% endif %}
 </div>
 <p class="muted">{{ owner.full_name }} · {{ course.name }} · {{ assignment.name }} · {{ sub.created_at|fecha }} hs · {{ sub.original_filename or 'texto pegado' }} · {{ sub.text_chars }} caracteres{% if sub.truncated %} (texto truncado para el análisis){% endif %}</p>
 
@@ -21,14 +25,21 @@ la devolución no evalúa si el trabajo es coherente con lo que se propuso.</div
 {% endif %}
 
 {% if user.role in ('admin', 'docente') and sub.kind == 'final' and sub.status == 'pendiente' %}
-  <p><a class="btn primary" href="{{ base }}/admin/final/{{ sub.id }}">Revisar y aprobar esta entrega</a></p>
+  <p><a class="btn primary" href="{{ base }}/admin/final/{{ sub.id }}">Revisar y validar esta entrega</a></p>
 {% endif %}
 
 {% if sub.kind == 'final' %}
-  {% if sub.status == 'pendiente' and user.role == 'student' %}
+  {% if embargo %}
+    {# Examen con plazo: lo corregido no circula mientras otras personas siguen rindiendo. #}
+    <section class="card center-note">
+      <h2>Entrega registrada</h2>
+      <p class="muted">La devolución y la calificación se publican al cierre del examen, el
+      <strong>{{ publica_el|fecha_corta }}</strong>. Hasta entonces nadie de la cursada las ve.</p>
+    </section>
+  {% elif sub.status == 'pendiente' and user.role == 'student' %}
     <section class="card center-note">
       <h2>En revisión del equipo docente</h2>
-      <p class="muted">Tu entrega definitiva fue registrada. Cuando el equipo docente apruebe la devolución, la vas a ver acá{% if owner.email %} y te va a llegar a {{ owner.email }}{% endif %}.</p>
+      <p class="muted">Tu entrega definitiva fue registrada. Cuando el equipo docente valide la devolución, la vas a ver acá{% if owner.email %} y te va a llegar a {{ owner.email }}{% endif %}.</p>
     </section>
   {% elif sub.status == 'aprobada' %}
     <section class="card">
@@ -102,20 +113,22 @@ la devolución no evalúa si el trabajo es coherente con lo que se propuso.</div
 {% if sub.imagenes %}
 <div class="flash warn">La entrega trae <strong>{{ sub.imagenes }} {{ 'imágenes' if sub.imagenes != 1 else 'imagen' }}</strong>
   (gráficos, esquemas, capturas o tablas como figura). <strong>Lidia corrige sobre el texto y no las ve</strong>,
-  así que lo que esas imágenes muestren no está evaluado{{ ' — mirá el archivo original antes de firmar' if user.role != 'student' }}.</div>
+  así que lo que esas imágenes muestren no está evaluado{{ ' — mirá el archivo original antes de validar' if user.role != 'student' }}.</div>
 {% endif %}
 
-{{ bloque_nota(sub.nota, detalle_nota, sub.status == 'aprobada') }}
+{% if not embargo %}
+{{ bloque_nota(sub.nota, detalle_nota, sub.status == 'aprobada', assignment.nota_aprobacion) }}
+{% endif %}
 {{ incidentes_bloque(incidentes) }}
 
-{{ tira_niveles(niveles) }}
+{% if not embargo %}{{ tira_niveles(niveles) }}{% endif %}
 
 {% if puede_promover %}
 <section class="card">
   <h2>¿Y ahora?</h2>
   <p class="muted small">Podés seguir trabajando y presentar otra versión, o dar esta por buena y
   presentarla como tu entrega definitiva. Si la presentás, va con la devolución que ya tenés: no se
-  vuelve a corregir, la revisa y la firma el equipo docente.</p>
+  vuelve a corregir, la revisa y la valida el equipo docente.</p>
   <div class="row-gap">
     <a class="btn" href="{{ base }}/panel/instancia/{{ assignment.id }}">Seguir trabajando</a>
     <form method="post" action="{{ base }}/entrega/{{ sub.id }}/final" class="inline"

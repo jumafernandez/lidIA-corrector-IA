@@ -35,7 +35,7 @@
         <td class="muted small">{{ e.instancia|truncate(22) }}</td>
         <td>{{ 'Definitiva' if e.kind == 'final' else 'Mejorable' }}</td>
         <td><span class="pill pill-mini {{ 'pill-warn' if e.status == 'pendiente' else ('pill-ok' if e.status in ('ok','aprobada') else '') }}">
-          {{ {'ok':'Con devolución','pendiente':'Por revisar','aprobada':'Aprobada','reabierta':'Reabierta','error':'Error'}[e.status] }}</span></td>
+          {{ {'ok':'Con devolución','pendiente':'Por revisar','aprobada':'Publicada','reabierta':'Reabierta','error':'Error'}[e.status] }}</span></td>
         <td>
           {% if e.kind == 'final' and e.status == 'pendiente' %}<a class="btn small primary" href="{{ base }}/admin/final/{{ e.id }}">Revisar</a>
           {% else %}<a href="{{ base }}/entrega/{{ e.id }}">Ver</a>{% endif %}

@@ -39,7 +39,7 @@
     </label>
     <label style="font-weight: 400">
       <input type="radio" name="tipo" value="choice" {{ 'checked' if tipo_actual == 'choice' }} {{ 'disabled' if bloqueado }} style="width: auto; margin-right: 8px">
-      <strong>Multiple choice</strong>{{ info("Clave de corrección y una única entrega, que es la definitiva. La calificación la calcula el código comparando con la clave, y la firma el equipo docente.") }}
+      <strong>Multiple choice</strong>{{ info("Clave de corrección y una única entrega, que es la definitiva. La calificación la calcula el código comparando con la clave, y la valida el equipo docente.") }}
     </label>
 
     <p style="margin: 18px 0 4px"><strong>Circuito de corrección</strong></p>
@@ -50,11 +50,11 @@
       {{ info("Lo que decide es quién cierra la entrega definitiva, no si la hay: definitiva hay siempre.
 
       Marcado, la corrección va a la cola del equipo docente y el estudiantado no la ve hasta que
-      alguien la revisa, la firma y confirma la calificación. Sin marcar, Lidia la cierra sola y la
+      alguien la revisa, la valida y confirma la calificación. Sin marcar, Lidia la cierra sola y la
       corrección queda a la vista apenas se entrega.") }}
     </label>
     <div class="flash warn sangria" id="aviso-sin-revision" hidden>
-      Nadie va a firmar esta instancia: la entrega definitiva se cierra sola, con la corrección y la
+      Nadie va a validar esta instancia: la entrega definitiva se cierra sola, con la corrección y la
       calificación de Lidia a la vista <strong>apenas el estudiantado entrega</strong>. Tiene sentido
       cuando la validación la hacés por fuera del sistema, y no cuando lo corregido son respuestas
       que todavía están rindiendo otras personas.

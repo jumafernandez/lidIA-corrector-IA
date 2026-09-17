@@ -31,7 +31,8 @@ from .db import (ahora_local, all_courses, anio_actual, momento_apertura, moment
                  get_assignment, get_config, get_course, get_db, get_edition, init_db,
                  is_enrolled, items_puntaje_total, practicas_usadas, preguntas_usadas,
                  set_config, staff_editions, student_editions, teacher_edition_ids,
-                 utcnow, visible_courses)
+                 utcnow, visible_courses, publicacion_diferida,
+)
 from . import emailer
 from .emailer import desvio, smtp_configured
 from .extract import ExtractionError, contar_imagenes, extract_text, paginas_de_pdf
@@ -973,6 +974,7 @@ def panel_instancia(request: Request, aid: int):
         grupo=grupo, companeros=companeros, grupo_cerrado=grupo_cerrado,
         ventana_abierta=abierta, motivo_cierre=motivo_cierre,
         respondible=respondible, ultima=ultima, empezado=empezado,
+        embargo=bool(final) and publicacion_diferida(assignment), publica_el=momento_cierre(assignment),
     )
 
 
@@ -1304,7 +1306,7 @@ def _examen_cerrar(user, assignment, course, items, cfg, respuestas, vencido: bo
             entregada + " No se pudo generar la devolución en este momento: la va a revisar "
             "el equipo docente."))
     if firma_sola:
-        cuanto = f" Tu calificación es {_num_nota(nota)}." if nota is not None else ""
+        cuanto = _cuanto_nota(assignment, nota)
         return redirect(f"/entrega/{sid}", msg=entregada + cuanto)
     return redirect(f"/entrega/{sid}", msg=entregada + " Queda en revisión del equipo docente.")
 
@@ -1502,7 +1504,7 @@ async def entregar(
         firma_sola = not assignment["requiere_revision"] and not error
         nota = _asentar_nota(sid, cfg, firma_sola)
         if firma_sola:
-            cuanto = f" Tu calificación es {_num_nota(nota)}." if nota is not None else ""
+            cuanto = _cuanto_nota(assignment, nota)
             return redirect(f"/entrega/{sid}", msg=(
                 "Entrega registrada." + cuanto + " Esta instancia no lleva revisión docente."))
         if error:
@@ -1652,8 +1654,11 @@ def entrega(request: Request, sid: int):
         ).fetchall()
         owner = db.execute("SELECT * FROM users WHERE id = ?", (sub["user_id"],)).fetchone()
         incidentes = _incidentes(db, sub)
+        # La definitiva de un examen con plazo se publica al cierre: hasta entonces el
+        # estudiante ve que quedó registrada, y nada más.
+        embargo = user["role"] == "student" and sub["kind"] == "final" and publicacion_diferida(assignment)
         # primera vez que el estudiante abre su devolución: dice si la leyó, y cuándo
-        if user["role"] == "student" and not sub["first_viewed_at"] and sub["ai_feedback_md"]:
+        if user["role"] == "student" and not embargo and not sub["first_viewed_at"] and sub["ai_feedback_md"]:
             db.execute("UPDATE submissions SET first_viewed_at = ? WHERE id = ?", (utcnow(), sub["id"]))
         habilitada = inscripcion_habilitada(db, user["id"], course["id"])
         # ¿Puede presentar ESTA práctica como final, tal cual está? Se calcula acá adentro,
@@ -1674,6 +1679,7 @@ def entrega(request: Request, sid: int):
         qs=qs, maxq=maxq, q_restantes=max(0, maxq - len(qs)), puede_preguntar=puede_preguntar,
         puede_promover=puede_promover, niveles=_niveles(sub),
         detalle_nota=_detalle_nota(sub), incidentes=incidentes,
+        embargo=embargo, publica_el=momento_cierre(assignment),
     )
 
 
@@ -1751,13 +1757,21 @@ def promover_a_final(request: Request, sid: int):
 
     nota = _asentar_nota(nueva_id, cfg, firma_sola)
     if firma_sola:
-        cuanto = f" Tu calificación es {_num_nota(nota)}." if nota is not None else ""
+        cuanto = _cuanto_nota(assignment, nota)
         return redirect(f"/entrega/{nueva_id}", msg=(
             "Listo: esta es tu entrega definitiva." + cuanto
             + " Esta instancia no lleva revisión docente."))
     return redirect(f"/entrega/{nueva_id}", msg=(
         "Listo: presentaste esta versión como entrega definitiva, con la devolución que ya "
-        "tenías. Ahora la revisa y la firma el equipo docente."))
+        "tenías. Ahora la revisa y la valida el equipo docente."))
+
+
+def _cuanto_nota(assignment, nota) -> str:
+    """La frase sobre la nota al entregar; en un examen con plazo, la de que se publica al cierre."""
+    if publicacion_diferida(assignment):
+        return (" La devolución y la calificación se publican al cierre, el "
+                f"{fecha_corta(momento_cierre(assignment))}.")
+    return f" Tu calificación es {_num_nota(nota)}." if nota is not None else ""
 
 
 def _num_nota(n) -> str:
@@ -1950,7 +1964,7 @@ def admin_final(request: Request, sid: int):
         owner = db.execute("SELECT * FROM users WHERE id = ?", (sub["user_id"],)).fetchone()
         incidentes = _incidentes(db, sub)
     return render(
-        request, "admin_final.html", sub=sub, owner=owner, course=course,
+        request, "admin_final.html", embargo=publicacion_diferida(assignment), publica_el=momento_cierre(assignment), sub=sub, owner=owner, course=course,
         assignment=assignment, repo_leido=_repo_leido(sub), niveles=_niveles(sub),
         detalle_nota=_detalle_nota(sub), incidentes=incidentes,
         smtp_ok=smtp_configured(),
@@ -2001,11 +2015,18 @@ async def admin_final_post(request: Request, sid: int):
                 (firmada, nota, ratio, user["id"], utcnow(), sid),
             )
     if action == "aprobar":
+        if publicacion_diferida(assignment):
+            # Queda validada, pero el estudiante la ve recién al cierre. Mandar ahora el
+            # correo o la nota al campus la publicaría por la ventana de al lado.
+            return redirect("/admin/entregas", msg=(
+                f"Devolución validada para {owner['full_name']}. Se publica al cierre del examen, el "
+                f"{fecha_corta(momento_cierre(assignment))}: hasta entonces no la ve, y el correo y la "
+                "nota al campus se mandan después."))
         ok, detail = emailer.enviar(owner["email"], emailer.devolucion_aprobada(
             first_name(owner["full_name"]), course, assignment, feedback.strip(), nota))
         campus = lti.enviar_nota_al_campus(assignment["id"], owner["id"], nota)
         return redirect("/admin/entregas",
-                        msg=f"Devolución aprobada para {owner['full_name']}.{campus}",
+                        msg=f"Devolución publicada para {owner['full_name']}.{campus}",
                         correo=aviso_correo(ok, detail))
     if action == "reabrir":
         ok, detail = emailer.enviar(owner["email"], emailer.entrega_reabierta(
@@ -2933,6 +2954,12 @@ async def admin_instancia_post(request: Request, aid: int):
         except ValueError:
             return redirect(f"/admin/instancias/{aid}",
                             err="Los cupos deben ser números (versiones 0–10, preguntas 0–10, integrantes 1–8).")
+        try:
+            na = float(str(form.get("nota_aprobacion", assignment["nota_aprobacion"])).replace(",", "."))
+            if not (0 <= na <= 10):
+                raise ValueError
+        except ValueError:
+            return redirect(f"/admin/instancias/{aid}", err="La nota para aprobar tiene que ser un número entre 0 y 10.")
         name = (form.get("name") or "").strip() or assignment["name"]
         if name != assignment["name"] and db.execute(
             "SELECT 1 FROM assignments WHERE edition_id = ? AND name = ? AND id != ?", (cid, name, aid)
@@ -3032,9 +3059,10 @@ async def admin_instancia_post(request: Request, aid: int):
             # ponía en cero en cada guardado, y una instancia con firma docente pasaba a
             # cerrarse sola sin que nadie lo pidiera.
             "UPDATE assignments SET name = ?, active = ?, tipo = ?, consigna = ?, rubrica = ?, respuestas = ?,"
-            " prompt_extra = ?, max_practicas = ?, max_preguntas = ?, max_integrantes = ? WHERE id = ?",
+            " prompt_extra = ?, max_practicas = ?, max_preguntas = ?, max_integrantes = ?, nota_aprobacion = ?"
+            " WHERE id = ?",
             (name, active, tipo, consigna, rubrica, respuestas,
-             (form.get("prompt_extra") or "").strip(), mp, mq, mi, aid),
+             (form.get("prompt_extra") or "").strip(), mp, mq, mi, na, aid),
         )
     msg = "Instancia guardada."
     if extraidos:
@@ -3190,7 +3218,7 @@ async def admin_docente_post(request: Request, uid: int):
                 return redirect(
                     f"/admin/docentes/{uid}",
                     err=f"Firmó {n} corrección{'es' if n != 1 else ''} final{'es' if n != 1 else ''}: "
-                        "su firma es parte del historial y no se puede eliminar. Deshabilitalo.",
+                        "su validación es parte del historial y no se puede eliminar. Deshabilitalo.",
                 )
             db.execute("DELETE FROM users WHERE id = ?", (uid,))
             return redirect("/admin/docentes", msg=f"Docente {doc['full_name']} eliminado.")

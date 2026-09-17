@@ -3,7 +3,7 @@
    Una nota sin su cuenta es un número que hay que creer. Acá se muestra qué aportó cada
    criterio o cada pregunta, así el estudiante puede ver dónde perdió y el docente puede
    revisar el reparto antes de firmar —o rectificarlo—. #}
-{% macro detalle_nota(nota, detalle, firmada) %}
+{% macro detalle_nota(nota, detalle, firmada, umbral=none) %}
 {% if nota is not none %}
 {% set niveles = {'Logrado': 10, 'En desarrollo': 6, 'Insuficiente': 3, 'No presente': 0} %}
 <section class="card nota-detalle">
@@ -11,6 +11,12 @@
     <h2>Calificación</h2>
     <span class="nota-numero">{{ nota }}<span class="muted small"> / 10</span></span>
   </div>
+  {# Aprobado o desaprobado se lee contra el umbral de la instancia: el estado «publicada»
+     habla de la devolución, no de la persona, y un 3 con sello verde confundía a todo el mundo. #}
+  {% if firmada and umbral is not none %}
+  <p><span class="pill {{ 'pill-ok' if nota >= umbral else 'pill-bad' }}">{{ 'Aprobado' if nota >= umbral else 'Desaprobado' }}</span>
+    <span class="muted small">Se aprueba con {{ '%g' % umbral }} o más.</span></p>
+  {% endif %}
   {% if detalle and detalle.tipo == 'niveles' and detalle.niveles %}
     <p class="muted small">Sale de tu rúbrica: cada criterio aporta según el nivel alcanzado
     (Logrado 10 · En desarrollo 6 · Insuficiente 3 · No presente 0), y se promedian todos por igual.</p>
@@ -42,7 +48,7 @@
     </table>
   {% endif %}
   <p class="muted small">{% if firmada %}Es la calificación de esta instancia.{% else %}Es la
-  calificación propuesta: la confirma o la corrige el equipo docente al firmar.{% endif %}</p>
+  calificación propuesta: la confirma o la corrige el equipo docente al validar.{% endif %}</p>
 </section>
 {% endif %}
 {% endmacro %}

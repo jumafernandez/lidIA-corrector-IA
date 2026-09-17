@@ -46,7 +46,7 @@ Cada uno dice qué hacer y qué debería pasar. Si pasa otra cosa, es un hallazg
 
 8. **Entrega definitiva.** → El estudiante ve *En revisión docente*. El docente la ve aparecer en su cola de entregas.
 
-9. **Revisión docente.** Como docente, abran esa definitiva: editen el texto de la devolución, cambien la calificación, validen. → El estudiante la ve *Aprobada*, con la nota nueva y **el texto editado**, no el original. Ya no puede volver a entregar.
+9. **Revisión docente.** Como docente, abran esa definitiva: editen el texto de la devolución, cambien la calificación, *Validar y publicar*. → El estudiante la ve como *Devolución publicada*, con la nota nueva, **el texto editado** —no el original— y el sello *Aprobado* o *Desaprobado* según la nota para aprobar de la instancia (4 por defecto; se cambia en la ficha). Ya no puede volver a entregar.
 
 10. **Sin revisión.** Creen una instancia con *requiere revisión* apagado y entreguen. → Se aprueba sola, con nota, sin pasar por el docente. Anoten si les parece que eso debería avisarse en algún lado.
 
@@ -58,7 +58,7 @@ Cada uno dice qué hacer y qué debería pasar. Si pasa otra cosa, es un hallazg
 
 13. **Opción múltiple.** Respondan, con dos o tres mal a propósito. → Nota automática correcta y una explicación escrita de cada error. Salgan a mitad de camino y vuelvan: ¿qué pasó con lo que habían marcado?
 
-14. **Rendir en la plataforma.** Marquen un escrito como *en plataforma* con una ventana de dos días y ríndanlo como estudiante: miren el reloj, escriban, salgan de la pestaña, intenten pegar texto, cierren el navegador y vuelvan, dejen que se acabe el tiempo. **Anoten todo lo que les parezca raro**: hay cosas ahí que sabemos que están mal y queremos ver si las encuentran solos.
+14. **Rendir en la plataforma.** Marquen un escrito como *en plataforma* con una ventana de dos horas y ríndanlo como estudiante. → Antes de empezar no se ven las preguntas; el examen arranca en **pantalla completa**; salir de ella (Esc, minimizar, otra ventana), salir de la pestaña más de dos segundos o intentar pegar tapa el examen con un cartel y suma al contador; el reloj es una cuenta regresiva (con una ventana de días, muestra la fecha de cierre). Cierren el navegador y vuelvan: lo escrito tiene que estar. Dejen que se acabe el tiempo: se entrega solo. Y lo más importante: **al entregar antes del cierre no se ve la devolución ni la nota** —se publican al cierre, también si el docente ya validó—. Muevan el cierre al pasado desde la ficha y vuelvan a mirar.
 
 **Lo que rompe**
 

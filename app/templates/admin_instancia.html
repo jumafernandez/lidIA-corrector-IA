@@ -137,6 +137,11 @@
         <input name="max_preguntas" value="{{ cupos.preguntas.valor }}" {{ 'readonly' if cupos.preguntas.fijo }}>
         {% if cupos.preguntas.fijo %}<span class="ayuda">Sin versiones previas no hay devolución sobre la que repreguntar.</span>{% endif %}
       </label>
+      <label>Nota para aprobar (0–10)
+        {{ info("Con esta nota o más, la calificación se muestra como Aprobado; por debajo, como Desaprobado.
+        Solo cambia cómo se lee el número: la nota la sigue poniendo el circuito que elegiste.") }}
+        <input name="nota_aprobacion" value="{{ '%g' % assignment.nota_aprobacion }}">
+      </label>
       {% if assignment.tipo != 'choice' %}
       <label>Integrantes por grupo (1–8)
         {{ info("1 = entrega individual. Con 2 o más, el estudiantado arma sus grupos y el cupo de devoluciones pasa a ser del grupo, no de cada persona. Es un máximo: alguien puede entregar solo.") }}
