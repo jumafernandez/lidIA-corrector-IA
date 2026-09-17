@@ -38,7 +38,7 @@
   <div class="prose" data-recortable>{{ assignment.consigna|md|safe }}</div>
 </section>
 {% endif %}
-{% if items %}
+{% if items and not assignment.en_plataforma %}
 <section class="card">
   <div class="row-between">
     <h2>Preguntas</h2>
@@ -72,6 +72,17 @@
     </li>
     {% endfor %}
   </ol>
+</section>
+{% elif items %}
+{# Se rinde en la plataforma: las preguntas se ven recién al comenzar, en la pantalla del
+   examen, con el reloj corriendo y para todo el mundo a la vez. Mostrarlas acá dejaba
+   resolver el examen con calma antes de apretar «Comenzar». #}
+<section class="card">
+  <div class="row-between">
+    <h2>Preguntas</h2>
+    <span class="pill pill-mini">{{ items|length }} pregunta{{ 's' if items|length != 1 }} · {{ puntaje_total|round(2)|int if puntaje_total == puntaje_total|round(0) else puntaje_total }} puntos</span>
+  </div>
+  <p class="muted">Las vas a ver al comenzar el examen, en la pantalla donde se rinde. Hasta entonces, acá está la consigna.</p>
 </section>
 {% endif %}
 {% if assignment.rubrica %}

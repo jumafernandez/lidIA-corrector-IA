@@ -33,6 +33,7 @@ from .db import get_db, utcnow
 # que poder explicarse en una frase a quien rinde y a quien corrige.
 TIPOS = {
     "salida": "Salió de la pantalla del examen",
+    "pantalla": "Salió de la pantalla completa",
     "pegado": "Intentó pegar texto desde otro lado",
 }
 
@@ -152,6 +153,7 @@ def resumen(filas) -> dict:
     """Los incidentes contados y en una frase, para la ficha de la entrega."""
     salidas = [f for f in filas if f["tipo"] == "salida"]
     pegados = [f for f in filas if f["tipo"] == "pegado"]
+    pantallas = [f for f in filas if f["tipo"] == "pantalla"]
     segundos = sum(_dato(f, "segundos") for f in salidas)
     caracteres = sum(_dato(f, "caracteres") for f in pegados)
     # Desde que el pegado se bloquea, lo que queda registrado es el INTENTO: el texto no
@@ -162,11 +164,14 @@ def resumen(filas) -> dict:
     if salidas:
         partes.append(f"Salió de la pantalla {_veces(len(salidas))}"
                       + (f" ({_duracion(segundos)} en total)" if segundos else ""))
+    if pantallas:
+        partes.append(f"Salió de la pantalla completa {_veces(len(pantallas))}")
     if pegados:
         verbo = "Intentó pegar texto" if len(bloqueados) == len(pegados) else "Pegó texto"
         partes.append(f"{verbo} {_veces(len(pegados))}"
                       + (f" ({caracteres} caracteres)" if caracteres else ""))
     return {"hay": bool(filas), "salidas": len(salidas), "pegados": len(pegados),
+            "pantallas": len(pantallas),
             "segundos": segundos, "caracteres": caracteres,
             "frase": " · ".join(partes) or "Sin incidentes registrados."}
 

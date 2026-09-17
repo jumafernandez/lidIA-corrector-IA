@@ -342,18 +342,30 @@ def _mandar_enlace(fila, volver: str, motivo: str = ""):
     solo dispara el correo. Si la cuenta no tiene correo cargado no hay a dónde mandarlo,
     y eso hay que decirlo en vez de fingir que se mandó.
     """
+    motivo = motivo or _motivo_de(fila)
+    vence = "una semana" if motivo == "alta" else "dos horas"
+    if not emailer.smtp_configured():
+        # Sin servidor de correo no hay a dónde mandarlo, pero el enlace sirve igual: se
+        # muestra acá para pasárselo a mano. Es la única forma de darle una contraseña a
+        # alguien en una instalación sin correo; esconderlo la dejaría sin poder entrar.
+        token = claves.crear(fila["id"], motivo)
+        if not token:
+            return redirect(volver, err="Ya se generaron varios enlaces para esta cuenta hace poco. "
+                                        "Esperá un rato antes de pedir otro.")
+        enlace = emailer.url_absoluta(f"/clave/{token}") or f"{BASE_PATH}/clave/{token}"
+        return redirect(volver, msg=(
+            f"El correo no está configurado en esta instalación, así que el enlace no se mandó: "
+            f"pasáselo a {fila['full_name']} por el medio que tengas. Vence en {vence}. {enlace}"))
     if not (fila["email"] or "").strip():
         return redirect(volver, err=(
             f"{fila['full_name']} no tiene correo cargado, así que no hay a dónde mandarle "
             "el enlace. Cargáselo y volvé a intentar."))
-    motivo = motivo or _motivo_de(fila)
     ok, detalle = _enviar_enlace(fila, motivo)
     if not ok and detalle == "ya se le mandaron varios enlaces hace poco":
         return redirect(volver, err="Ya se mandaron varios enlaces a esta cuenta hace poco. "
                                     "Esperá un rato antes de pedir otro.")
     if not ok:
         return redirect(volver, correo=aviso_correo(False, detalle))
-    vence = "una semana" if motivo == "alta" else "dos horas"
     que = "Invitación enviada" if motivo == "alta" else "Enlace de contraseña generado"
     return redirect(volver, msg=f"{que} para {fila['full_name']}.",
                     correo=aviso_correo(True, f"{detalle} El enlace vence en {vence}."))
@@ -569,6 +581,12 @@ def clave_enviar(request: Request, dato: str = Form(...)):
     """
     mismo = ("Si esa cuenta existe, le mandamos un correo con el enlace para elegir una "
              "contraseña nueva. Revisá también el correo no deseado.")
+    if not emailer.smtp_configured():
+        # Sin servidor de correo, «te mandamos un correo» es mentirle a todo el mundo. El
+        # enlace lo genera coordinación desde la ficha y se lo pasa a mano.
+        return redirect("/login", msg=(
+            "En esta instalación no se mandan correos, así que no podemos enviarte el enlace. "
+            "Pedíselo al equipo docente o a coordinación: lo generan desde tu ficha y te lo pasan."))
     fila = claves.buscar_cuenta(dato)
     if fila and (fila["email"] or "").strip():
         token = claves.crear(fila["id"], "olvido")
@@ -790,6 +808,15 @@ def _en_plataforma(tipo: str, marcado: str, fecha_cierre: str) -> tuple[int, str
     return 1, ""
 
 
+def _leer_fechas(form):
+    """Las fechas de una cursada, o None si termina antes de empezar. Vacías se aceptan."""
+    inicio = (form.get("fecha_inicio") or "").strip()
+    fin = (form.get("fecha_fin") or "").strip()
+    if inicio and fin and fin < inicio:   # vienen como AAAA-MM-DD: se comparan como texto
+        return None
+    return inicio, fin
+
+
 def _leer_anio(valor, por_defecto: int | None = None) -> int | None:
     """El año que vino del formulario, o None si no es un año. Vacío = el por defecto."""
     texto = (valor or "").strip()
@@ -991,16 +1018,23 @@ async def panel_grupo(request: Request, aid: int):
             return redirect(volver, msg="Saliste del grupo: volvés a entregar por tu cuenta.")
 
         # armar o rehacer el grupo con los DNI que cargó
-        dnis = [d.strip() for d in (form.get("companeros") or "").replace(";", ",").replace("\n", ",").split(",")]
-        dnis = [re.sub(r"[.\s]", "", d) for d in dnis if d.strip()]
-        if not dnis:
+        escritos = [d.strip() for d in (form.get("companeros") or "").replace(";", ",").replace("\n", ",").split(",")
+                    if d.strip()]
+        if not escritos:
             return redirect(volver, err="Cargá el DNI de al menos un compañero o compañera.")
 
         companeros, errores = [], []
-        for dni in dnis:
-            fila = db.execute("SELECT * FROM users WHERE login = ? AND role = 'student'", (dni,)).fetchone()
+        for escrito in escritos:
+            # Primero tal cual se escribió y después sin puntos ni espacios: «30.123.456» es
+            # el DNI 30123456, pero un usuario cuyo nombre lleva un punto también existe, y
+            # limpiarlo antes de buscar lo dejaba sin encontrar.
+            fila = None
+            for candidato in dict.fromkeys((escrito, re.sub(r"[.\s]", "", escrito))):
+                fila = db.execute("SELECT * FROM users WHERE login = ? AND role = 'student'", (candidato,)).fetchone()
+                if fila:
+                    break
             if not fila:
-                errores.append(f"{dni} no figura como estudiante")
+                errores.append(f"{escrito} no figura como estudiante")
             elif fila["id"] == user["id"]:
                 continue
             elif not is_enrolled(db, fila["id"], ed["id"]):
@@ -1157,17 +1191,28 @@ async def examen_incidente(request: Request, aid: int):
         cuantas = examen_mod.registrar(db, user["id"], aid, tipo, detalle)
         llevados = examen_mod.cuantos(db, user["id"], aid)
     return JSONResponse({"ok": True, "aviso": _aviso_incidente(tipo, cuantas),
-                         "llevados": llevados})
+                         "detalle": _detalle_incidente(cuantas), "llevados": llevados})
 
 
 def _aviso_incidente(tipo: str, cuantas: int) -> str:
-    """Lo que se le dice a quien rinde, en el momento. Sin acusar y sin esconder nada."""
+    """Lo que se le dice a quien rinde en la banda del encabezado. Sin acusar y sin esconder nada."""
     veces = "" if cuantas <= 1 else f" (van {cuantas})"
     if tipo == "salida":
         que = f"Saliste de la pantalla del examen{veces}."
+    elif tipo == "pantalla":
+        que = f"Saliste de la pantalla completa{veces}."
     else:
         que = f"No se puede pegar texto en el examen. Quedó registrado el intento{veces}."
     return que + " El equipo docente está al tanto: lo ve junto a tu entrega."
+
+
+def _detalle_incidente(cuantas: int) -> str:
+    """Lo que va DENTRO del cartel que tapa el examen: solo cuántas van.
+
+    El cartel ya trae título y pie propios. Meterle además el aviso entero hacía que la
+    misma frase apareciera tres veces seguidas, y tres veces la misma frase es ninguna.
+    """
+    return "" if cuantas <= 1 else f"Es la {cuantas}.ª vez en este examen."
 
 
 @app.post("/examen/{aid}/entregar")
@@ -2185,6 +2230,10 @@ async def admin_cursos_crear(request: Request):
     anio = _leer_anio(form.get("anio"))
     if anio is None:
         return redirect(volver, err=f"El año de la cursada tiene que estar entre {ANIO_MIN} y {ANIO_MAX}.")
+    fechas = _leer_fechas(form)
+    if fechas is None:
+        return redirect(volver, err="La cursada no puede terminar antes de empezar.")
+    fecha_inicio, fecha_fin = fechas
 
     with get_db() as db:
         if materia_id == "nueva" or not materia_id:
@@ -2215,7 +2264,7 @@ async def admin_cursos_crear(request: Request):
             "INSERT INTO course_editions (course_id, anio, etiqueta, active, created_at,"
             " fecha_inicio, fecha_fin) VALUES (?, ?, ?, ?, ?, ?, ?)",
             (cid_materia, anio, etiqueta, 1 if form.get("active", "1") == "1" else 0, utcnow(),
-             (form.get("fecha_inicio") or "").strip(), (form.get("fecha_fin") or "").strip()),
+             fecha_inicio, fecha_fin),
         ).lastrowid
         # Quien la crea queda como docente, salvo que sea coordinación eligiendo a otros.
         # Sin esto un docente crearía una cursada que después no puede ver.
@@ -2305,6 +2354,10 @@ async def admin_curso_post(request: Request, cid: int):
             if anio is None:
                 return redirect(f"/admin/cursos/{cid}",
                                 err=f"El año de la cursada tiene que estar entre {ANIO_MIN} y {ANIO_MAX}.")
+            fechas = _leer_fechas(form)
+            if fechas is None:
+                return redirect(f"/admin/cursos/{cid}", err="La cursada no puede terminar antes de empezar.")
+            fecha_inicio, fecha_fin = fechas
             # Se miran juntos: lo que no se puede repetir es materia + año + etiqueta.
             if (anio, etiqueta) != (course["anio"], course["etiqueta"]) and db.execute(
                 "SELECT 1 FROM course_editions WHERE course_id = ? AND anio = ? AND etiqueta = ?"
@@ -2317,8 +2370,7 @@ async def admin_curso_post(request: Request, cid: int):
             db.execute(
                 "UPDATE course_editions SET anio = ?, etiqueta = ?, active = ?, fecha_inicio = ?,"
                 " fecha_fin = ? WHERE id = ?",
-                (anio, etiqueta, 1 if form.get("active") == "1" else 0,
-                 (form.get("fecha_inicio") or "").strip(), (form.get("fecha_fin") or "").strip(), cid),
+                (anio, etiqueta, 1 if form.get("active") == "1" else 0, fecha_inicio, fecha_fin, cid),
             )
             elegidos = {int(x) for x in form.getlist("docentes")}
             # Un docente no puede sacarse a sí mismo: la lista se reescribe entera, y el

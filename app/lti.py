@@ -200,6 +200,15 @@ def _anotar_servicios(datos: dict, assignment_id=None):
         return
     client_id = (datos.get("aud") if isinstance(datos.get("aud"), str)
                  else (datos.get("aud") or [""])[0])
+    if assignment_id is not None:
+        with get_db() as db:
+            if not get_assignment(db, assignment_id):
+                # La actividad apunta a una instancia que ya no existe. Los servicios del
+                # curso se anotan igual —sirven para la lista y las notas de las demás
+                # actividades—, pero sin atarlos a nada: atarlos rompía la clave foránea y
+                # con ella el lanzamiento entero, cuando lo que corresponde es la pantalla
+                # de «esto ya no existe».
+                assignment_id = None
     lti_storage.guardar_servicios(
         datos.get("iss", ""), client_id, datos.get(f"{CLAIM}/deployment_id", ""),
         contexto, enlace, assignment_id, nrps, ags.get("lineitem", ""),

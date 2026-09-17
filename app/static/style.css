@@ -747,3 +747,28 @@ input[type="datetime-local"]:hover::-webkit-calendar-picker-indicator { opacity:
 .examen-bloqueo-caja p { font-size: 1.05rem; line-height: 1.6; margin: 0 0 10px; }
 .examen-bloqueo-caja .bloqueo-nota { font-size: .92rem; opacity: .85; margin-bottom: 22px; }
 .examen-bloqueo-caja .btn { background: #fff; color: #7a0c0c; border-color: #fff; font-weight: 700; }
+
+/* La puerta de entrada: el examen se rinde en pantalla completa y se entra con un clic,
+   porque el navegador solo la concede así. Mismo molde que el cartel rojo, en petróleo. */
+.examen-puerta {
+  position: fixed; inset: 0; z-index: 60;
+  display: flex; align-items: center; justify-content: center; padding: 24px;
+  background: rgba(10, 61, 66, .97);
+}
+.examen-puerta[hidden] { display: none; }
+.examen-puerta-caja { max-width: 540px; text-align: center; color: #fff; font-family: var(--font-body); }
+.examen-puerta-caja h2 { font-family: var(--font-title); font-size: 1.6rem; margin: 0 0 14px; color: #fff; }
+.examen-puerta-caja p { font-size: 1.05rem; line-height: 1.6; margin: 0 0 22px; }
+/* Con más de un día por delante el reloj muestra la fecha de cierre, en chico. */
+.reloj.lejos { font-size: 1rem; font-weight: 600; }
+
+/* El ojo de las contraseñas: ver lo que se escribe, para no equivocarse a ciegas. */
+.clave-caja { position: relative; display: block; }
+.clave-caja input { width: 100%; padding-right: 42px; box-sizing: border-box; }
+.clave-ojo {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  width: 32px; height: 32px; padding: 0; border: 0; background: none; cursor: pointer;
+  color: var(--muted); display: inline-flex; align-items: center; justify-content: center; border-radius: 6px;
+}
+.clave-ojo:hover, .clave-ojo.activo { color: var(--primary); }
+.clave-ojo svg { width: 20px; height: 20px; }

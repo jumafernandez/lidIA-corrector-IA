@@ -24,8 +24,8 @@
   </div>
   {# El contador vive a la vista todo el examen: es lo que de verdad recuerda que se está
      anotando, y no le cuesta un segundo a quien no hizo nada. #}
-  <div class="examen-contador" id="contador" {{ 'hidden' if not (llevados.salida or llevados.pegado) }}
-       data-salidas="{{ llevados.salida }}" data-pegados="{{ llevados.pegado }}"></div>
+  <div class="examen-contador" id="contador" {{ 'hidden' if not (llevados.salida or llevados.pegado or llevados.pantalla) }}
+       data-salidas="{{ llevados.salida }}" data-pegados="{{ llevados.pegado }}" data-pantallas="{{ llevados.pantalla }}"></div>
   <div class="flash warn examen-aviso" id="aviso-incidente" hidden></div>
   <div class="flash bad examen-aviso" id="aviso-conexion" hidden>Sin conexión: lo que escribas se guarda en cuanto vuelva.</div>
 </div>
@@ -69,18 +69,32 @@
   </div>
 </form>
 
-<p class="muted small examen-nota">En este examen <strong>no se puede pegar texto</strong>: escribí tus
-respuestas acá. Si salís de esta pantalla o intentás pegar, queda registrado y el equipo docente lo ve
-junto a tu entrega. No se registra nada más de lo que hagas fuera de esta pantalla.</p>
+<p class="muted small examen-nota">Este examen se rinde en pantalla completa y <strong>no se puede pegar
+texto</strong>: escribí tus respuestas acá. Si salís de esta pantalla o de la pantalla completa, o intentás
+pegar, queda registrado y el equipo docente lo ve junto a tu entrega. No se registra nada más de lo que
+hagas fuera de esta pantalla.</p>
 
-{# Cartel de regreso: tapa el examen hasta que se lo cierre con un clic. Sin
-   temporizador a propósito — si la salida fue un falso positivo, no le cuesta tiempo. #}
+{# La puerta: el examen se rinde en pantalla completa, y se entra con un botón porque el
+   navegador solo la concede ante un clic. Donde el navegador no la ofrece —el iPhone, por
+   ejemplo— la puerta se retira sola: nadie se queda sin rendir por su teléfono. #}
+<div class="examen-puerta" id="puerta">
+  <div class="examen-puerta-caja">
+    <h2>{{ 'Seguir con el examen' if respuestas else 'Comenzar el examen' }}</h2>
+    <p>Se rinde en <strong>pantalla completa</strong>. Si salís de ella —con Esc, minimizando la ventana
+    o cambiando a otra— el examen se tapa hasta que vuelvas, y queda registrado.</p>
+    <button type="button" class="btn accent" id="puerta-entrar">Entrar en pantalla completa</button>
+  </div>
+</div>
+
+{# Cartel de regreso: tapa el examen hasta que se lo cierre con un clic. Sin temporizador
+   a propósito — si la salida fue un falso positivo, no le cuesta tiempo. Título y pie son
+   fijos; el texto del medio solo dice cuántas van, cuando van varias. #}
 <div class="examen-bloqueo" id="bloqueo" hidden>
   <div class="examen-bloqueo-caja">
-    <h2>Saliste de la pantalla del examen</h2>
-    <p id="bloqueo-texto"></p>
+    <h2 id="bloqueo-titulo">Saliste de la pantalla del examen</h2>
+    <p id="bloqueo-texto" hidden></p>
     <p class="bloqueo-nota">El equipo docente está al tanto: queda registrado junto a tu entrega.</p>
-    <button type="button" class="btn" id="bloqueo-cerrar" autofocus>Volver al examen</button>
+    <button type="button" class="btn" id="bloqueo-cerrar">Volver al examen</button>
   </div>
 </div>
 

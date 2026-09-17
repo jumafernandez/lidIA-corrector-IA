@@ -13,7 +13,8 @@
     <ul>
       {% for i in datos.filas %}
       <li>{{ i.created_at|fecha }} hs ·
-        {{ 'salió de la pantalla' if i.tipo == 'salida' else 'pegó texto desde otro lado' }}</li>
+        {{ {'salida': 'salió de la pantalla', 'pantalla': 'salió de la pantalla completa',
+            'pegado': 'intentó pegar texto desde otro lado'}.get(i.tipo, i.tipo) }}</li>
       {% endfor %}
     </ul>
   </details>
