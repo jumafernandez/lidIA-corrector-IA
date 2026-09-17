@@ -204,25 +204,32 @@
           data-busy="1" data-lidia="Lidia está leyendo tu examen" class="fotos-form">
       <input type="hidden" name="kind" value="{{ 'final' if unica else 'practica' }}">
       <input type="hidden" name="assignment_id" value="{{ assignment.id }}">
-      {# Dos caminos al mismo campo: la cámara del teléfono, de a una hoja por vez, y la galería,
-         de a varias. Abajo se listan en orden y se pueden quitar. #}
+      {# Tres caminos al mismo campo, y ninguno obligatorio: el visor de LidIA —que encuadra y
+         revisa la foto—, la cámara del teléfono, y la galería. Si el navegador no da cámara, el
+         primero no aparece y los otros dos siguen ahí. #}
       <input type="file" name="fotos" accept="image/jpeg,image/png,image/webp" multiple data-fotos>
       <input type="file" accept="image/*" capture="environment" hidden data-camara>
-      <p><button type="button" class="btn" data-sacar>📷 Sacar foto con la cámara</button></p>
+      <p class="row-gap">
+        <button type="button" class="btn primary" data-visor hidden>📷 Fotografiar las hojas</button>
+        <button type="button" class="btn ghost" data-sacar>Usar la cámara del teléfono</button>
+      </p>
       <ol class="fotos-lista" data-lista hidden></ol>
-      <p class="muted small">Hasta 6 fotos (JPG o PNG), en orden y con buena luz. Lidia las lee y te muestra
+      <p class="muted small">Hasta {{ 6 }} hojas, en orden y con buena luz. Lidia las lee y te muestra
       cada hoja con su lectura para que la revises: <strong>nada se entrega hasta que confirmes</strong>
       en el paso siguiente.</p>
       <button type="submit" class="btn">Leer mi examen</button>
     </form>
+    <script src="{{ base }}/static/camara.js"></script>
     <script>
     (function () {
       const f = document.querySelector("form.fotos-form"); if (!f) return;
       const principal = f.querySelector("[data-fotos]"), camara = f.querySelector("[data-camara]"),
-            lista = f.querySelector("[data-lista]");
+            lista = f.querySelector("[data-lista]"), visor = f.querySelector("[data-visor]");
+      const TOPE = 6;
       let hojas = [];
       const clave = a => `${a.name}|${a.size}|${a.lastModified}`;
       function pintar() {
+        if (hojas.length > TOPE) hojas = hojas.slice(0, TOPE);
         try { const dt = new DataTransfer(); hojas.forEach(a => dt.items.add(a)); principal.files = dt.files; }
         catch (e) { return; }   // navegador viejo: queda lo que eligió en el campo, sin lista
         lista.innerHTML = ""; lista.hidden = hojas.length === 0;
@@ -240,6 +247,15 @@
         pintar();
       });
       f.querySelector("[data-sacar]").addEventListener("click", () => camara.click());
+      if (window.LidiaCamara && window.LidiaCamara.disponible) {
+        visor.hidden = false;
+        visor.addEventListener("click", async () => {
+          try {
+            hojas.push(...await window.LidiaCamara.abrir(hojas.length, TOPE));
+            pintar();
+          } catch (e) { alert(e.message); }
+        });
+      }
     })();
     </script>
   </details>

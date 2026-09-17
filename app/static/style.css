@@ -188,9 +188,49 @@ main a:hover, .foot a:hover { color: #0a4d54; -webkit-text-fill-color: #0a4d54; 
 .dif ins { background: var(--ok-bg); color: var(--ok-ink); text-decoration: none; border-bottom: 2px solid var(--ok-ink); padding: 0 2px; }
 .fotos-lista { margin: 8px 0 0; padding-left: 20px; font-size: .9rem; }
 .fotos-lista li { margin: 4px 0; }
-/* `hidden` es una declaración de intención: nada de lo de arriba —que le da display a los
-   inputs, por ejemplo— debería poder mostrarlo igual. */
-[hidden] { display: none !important; }
+
+/* El visor para fotografiar las hojas: ocupa la pantalla entera, porque encuadrar una hoja
+   en un recuadro chico no sirve de nada. */
+dialog.camara {
+  width: 100vw; max-width: 100vw; height: 100dvh; max-height: 100dvh;
+  margin: 0; padding: 0; border: 0; background: #0b1416; color: #fff;
+  display: flex; flex-direction: column;
+}
+dialog.camara::backdrop { background: #000; }
+.camara-visor { position: relative; flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
+.camara-visor video { width: 100%; height: 100%; object-fit: contain; background: #000; }
+/* El marco guía: si la hoja entra acá, entra entera en la foto. */
+.camara-marco {
+  /* Proporción de una hoja A4 vertical: así «si entra en el marco, entra en la foto» es
+     literal y no una forma de decir. Se achica sola cuando el visor es más chato que la hoja. */
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  aspect-ratio: 1 / 1.414; height: 88%; max-width: 92%;
+  border: 3px dashed rgba(255, 255, 255, .85); border-radius: 10px;
+  pointer-events: none; display: flex; align-items: flex-start; justify-content: center;
+}
+.camara-marco span {
+  /* Adentro del marco, no encima: arriba del borde se cortaba contra el techo de la pantalla. */
+  margin-top: .55rem; background: rgba(0, 0, 0, .6); color: #fff;
+  font-family: var(--font-body); font-size: .85rem; padding: 4px 10px; border-radius: 999px;
+}
+.camara-queja {
+  position: absolute; left: 12px; right: 12px; bottom: 12px; margin: 0;
+  background: var(--warn-bg); color: var(--warn-ink); font-size: .88rem;
+  padding: 10px 12px; border-radius: var(--radius);
+}
+.camara-barra { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 14px 16px; }
+.camara-disparo {
+  width: 68px; height: 68px; border-radius: 50%; border: 4px solid #fff;
+  background: #fff; cursor: pointer; flex-shrink: 0; box-shadow: 0 0 0 3px rgba(255, 255, 255, .25);
+}
+.camara-disparo:disabled { opacity: .35; cursor: not-allowed; }
+.camara-tira { display: flex; gap: 10px; overflow-x: auto; list-style: none; margin: 0; padding: 0 16px 16px; }
+.camara-tira li { position: relative; flex-shrink: 0; text-align: center; font-size: .72rem; color: #cfe0e1; }
+.camara-tira img { display: block; width: 66px; height: 88px; object-fit: cover; border-radius: 6px; border: 1px solid #2b3d40; }
+.camara-quitar {
+  position: absolute; top: -6px; right: -6px; width: 22px; height: 22px; border-radius: 50%;
+  border: 0; background: var(--bad-ink); color: #fff; font-size: .8rem; line-height: 1; cursor: pointer;
+}
 .pill-mini { font-size: .74rem; padding: 2px 10px; }
 
 /* ---------- formularios ---------- */
