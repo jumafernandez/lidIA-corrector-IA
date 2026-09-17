@@ -1082,6 +1082,12 @@ async def panel_grupo(request: Request, aid: int):
                 companeros.append(fila)
         if errores:
             return redirect(volver, err=" · ".join(errores))
+        if not companeros:
+            # Cargarse a uno mismo se saltea arriba —ya estás en tu propio grupo—, pero si eso
+            # era todo lo que escribió, lo que se armaba era un grupo de una persona: decía
+            # «grupo armado» y no había con quién.
+            return redirect(volver, err=(
+                "Ese es tu propio documento. Cargá el de la persona con la que vas a entregar."))
         if len(companeros) + 1 > assignment["max_integrantes"]:
             return redirect(volver, err=f"El máximo es de {assignment['max_integrantes']} integrantes por grupo.")
 

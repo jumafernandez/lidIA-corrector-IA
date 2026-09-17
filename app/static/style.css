@@ -351,7 +351,25 @@ body.login-bg {
 .lidia.shy .cheek { opacity: 1; }
 
 /* ---------- tablas ---------- */
+/* Una tabla no puede ensanchar la página. En un teléfono de 360 px, el historial de entregas
+   obligaba al navegador a alejarse hasta 619 px para que entrara, y con él se achicaba todo lo
+   demás. Ahora la tabla se desplaza adentro de su propia caja y la página queda del ancho del
+   teléfono. El envoltorio lo pone el JS de base.html, sobre todas las tablas del sistema. */
+.tabla-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 table { width: 100%; border-collapse: collapse; font-size: .92rem; }
+/* Un nombre de archivo largo no tiene espacios donde cortar, y sin esto estira la columna
+   hasta donde haga falta. `break-word` y no `anywhere`: el segundo corta con ganas —dejaba
+   «Defi nitiv a»— y además le dice al navegador que la columna puede achicarse hasta una
+   letra. Este solo parte la palabra cuando no hay forma de que entre. */
+td { overflow-wrap: break-word; }
+@media (max-width: 560px) {
+  th, td { padding: 8px 7px; }
+  table { font-size: .86rem; }
+  /* Con el ancho del teléfono a secas, las columnas se estrujan tanto que el navegador parte
+     las palabras por la mitad —«Defi nitiv a»— y la tabla deja de leerse. Se le da el ancho
+     mínimo para que las palabras entren enteras, y lo que sobra se desplaza de costado. */
+  .tabla-scroll table { min-width: 470px; }
+}
 th { text-align: left; color: var(--muted); font-family: var(--font-title); font-size: .74rem; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; }
 th, td { padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
 tbody tr:hover { background: var(--bg); }

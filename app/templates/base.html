@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Roboto+Slab:wght@400;500;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="{{ base }}/static/style.css?v=58">
+<link rel="stylesheet" href="{{ base }}/static/style.css?v=59">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='80' font-size='80'>🧠</text></svg>">
 </head>
 <body class="{% block bodyclass %}{% endblock %}">
@@ -409,6 +409,17 @@ document.querySelectorAll('input[type="password"]').forEach(inp => {
     inp.focus();
   });
   caja.appendChild(b);
+});
+
+// Cada tabla, adentro de una caja que se desplaza sola. Se hace acá y no en cada plantilla
+// porque son veinte tablas repartidas por todo el sistema, y porque la que se olvide de
+// envolverse vuelve a romper la vista en el teléfono.
+document.querySelectorAll("table").forEach(t => {
+  if (t.closest(".tabla-scroll")) return;
+  const caja = document.createElement("div");
+  caja.className = "tabla-scroll";
+  t.parentNode.insertBefore(caja, t);
+  caja.appendChild(t);
 });
 </script>
 </body>
