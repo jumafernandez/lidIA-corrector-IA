@@ -1060,7 +1060,7 @@ async def panel_grupo(request: Request, aid: int):
         if not escritos:
             return redirect(volver, err="Cargá el DNI de al menos un compañero o compañera.")
 
-        companeros, errores = [], []
+        companeros, errores, vistos = [], [], set()
         for escrito in escritos:
             # Primero tal cual se escribió y después sin puntos ni espacios: «30.123.456» es
             # el DNI 30123456, pero un usuario cuyo nombre lleva un punto también existe, y
@@ -1078,7 +1078,13 @@ async def panel_grupo(request: Request, aid: int):
                 errores.append(f"{fila['full_name']} no está en esta cursada")
             elif grupo_de(db, fila["id"], aid):
                 errores.append(f"{fila['full_name']} ya está en otro grupo")
+            elif fila["id"] in vistos:
+                # La misma persona escrita dos veces —«30111222, 30.111.222» es la misma— daba
+                # dos INSERT con la misma clave y tiraba abajo la pantalla con un error 500.
+                # Repetir a alguien no es un error de quien lo escribe: se ignora y sigue.
+                continue
             else:
+                vistos.add(fila["id"])
                 companeros.append(fila)
         if errores:
             return redirect(volver, err=" · ".join(errores))
@@ -3375,7 +3381,10 @@ def _crear_o_inscribir(db, edition_id: int, dni: str, apellido: str, nombre: str
     le manda al correo. Acá no hay ninguna credencial que devolver.
     """
     if not dni.isdigit() or not (6 <= len(dni) <= 9):
-        return "error", f"DNI inválido ({dni})"
+        # El usuario de un estudiante ES su documento, y con eso entra: decir solo «inválido»
+        # deja a quien carga el listado adivinando qué tiene de malo.
+        return "error", (f"«{dni}» no es un documento válido: tienen que ser de 6 a 9 dígitos, "
+                         "sin puntos ni letras (el documento es también su usuario para entrar)")
     row = db.execute("SELECT * FROM users WHERE login = ?", (dni,)).fetchone()
     if row:
         if row["role"] != "student":
@@ -3574,7 +3583,9 @@ async def admin_cargar(
         if not can_access_edition(db, user, curso_id) or not get_edition(db, curso_id):
             return redirect("/admin/estudiantes", err="No podés dar altas en ese curso.")
         creados, inscriptos, ya_estaban, errores = _alta_estudiantes(db, curso_id, lines)
-    msg = f"Se crearon {len(creados)} estudiantes."
+    msg = ("No se creó ningún estudiante." if not creados
+           else "Se creó 1 estudiante." if len(creados) == 1
+           else f"Se crearon {len(creados)} estudiantes.")
     if inscriptos:
         msg += f" Ya existían y se inscribieron: {len(inscriptos)}."
     if ya_estaban:
@@ -3583,7 +3594,9 @@ async def admin_cargar(
     volver = f"/admin/estudiantes?curso={curso_id}"
     if accion != "avisar" or not creados:
         if creados and accion != "avisar":
-            msg += " Todavía no se les avisó: podés mandarles el enlace desde su ficha."
+            msg += (" Todavía no se le avisó: podés mandarle el enlace desde su ficha."
+                    if len(creados) == 1
+                    else " Todavía no se les avisó: podés mandarles el enlace desde su ficha.")
         return redirect(volver, msg=msg, err=err)
 
     # Las invitaciones van FUERA del bloque de base: son una llamada de red por persona y
