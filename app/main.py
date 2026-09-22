@@ -3380,12 +3380,14 @@ def _crear_o_inscribir(db, edition_id: int, dni: str, apellido: str, nombre: str
     La cuenta nace sin contraseña utilizable: su dueño elige la suya con el enlace que se
     le manda al correo. Acá no hay ninguna credencial que devolver.
     """
-    if not dni.isdigit() or not (6 <= len(dni) <= 9):
-        # El usuario de un estudiante ES su documento, y con eso entra: decir solo «inválido»
-        # deja a quien carga el listado adivinando qué tiene de malo.
+    # Se busca ANTES de validar el formato: el filtro está para que una cuenta nueva nazca con
+    # un documento de verdad —el usuario de un estudiante ES su documento—, no para impedir que
+    # alguien que ya está en el sistema se inscriba en otra materia. Aplicándolo primero, una
+    # cuenta con un usuario que no es un número quedaba encerrada en la cursada donde nació.
+    row = db.execute("SELECT * FROM users WHERE login = ?", (dni,)).fetchone()
+    if not row and (not dni.isdigit() or not (6 <= len(dni) <= 9)):
         return "error", (f"«{dni}» no es un documento válido: tienen que ser de 6 a 9 dígitos, "
                          "sin puntos ni letras (el documento es también su usuario para entrar)")
-    row = db.execute("SELECT * FROM users WHERE login = ?", (dni,)).fetchone()
     if row:
         if row["role"] != "student":
             return "error", f"{dni} ya existe y no es estudiante"
