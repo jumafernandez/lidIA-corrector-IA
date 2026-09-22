@@ -253,9 +253,13 @@ textarea { resize: vertical; }
 input:focus, textarea:focus, select:focus { outline: 2px solid #79c6cc; border-color: var(--primary); }
 /* Un campo que el sistema decide por vos: se ve, se copia, no se edita. */
 input[readonly] { background: #f2f4f6; color: #667; cursor: not-allowed; }
+/* Un botón puede ser un `<a>` o un `<button>`, y sin estas dos líneas no miden lo mismo: el
+   `<a>` hereda el interlineado del cuerpo y el `<button>` usa el suyo, y el borde de `.ghost`
+   suma alto solo a los que lo tienen. Dos botones al lado del otro quedaban de distinto
+   tamaño. El borde va transparente en todos y lo colorea quien lo necesita. */
 .btn, .btn:visited {
-  display: inline-block; border: none; border-radius: 6px; padding: 10px 18px;
-  font-family: var(--font-title); font-size: .92rem; font-weight: 700; letter-spacing: .2px;
+  display: inline-block; border: 1.5px solid transparent; border-radius: 6px; padding: 10px 18px;
+  font-family: var(--font-title); font-size: .92rem; font-weight: 700; letter-spacing: .2px; line-height: 1.25;
   cursor: pointer; text-decoration: none; background: #e9ecef; color: #212529; -webkit-text-fill-color: #212529; margin-top: 8px;
 }
 .btn:hover { color: #212529; -webkit-text-fill-color: #212529; }
@@ -460,8 +464,15 @@ tr.grupo th {
   padding: 18px 10px 6px; border-bottom: 1px solid var(--line);
 }
 tbody tr.grupo:first-child th { padding-top: 2px; }
-.acciones { white-space: nowrap; display: flex; gap: 6px; align-items: center; }
-.acciones form.inline { display: contents; }
+/* Los botones de acción de una fila. Acá NO va `display: flex`: un `td` con flex deja de ser
+   celda de tabla, ya no toma el alto de la fila, y los botones quedan pegados arriba. No se
+   notaba mientras todas las filas medían lo mismo; en cuanto una crecía —un estudiante con
+   varias cursadas— quedaban descentrados. Se mantienen en línea con inline-block, que sí
+   respeta el `vertical-align: middle` de la celda. */
+.acciones { white-space: nowrap; }
+.acciones > * { vertical-align: middle; }
+.acciones form.inline { display: inline-block; }
+.acciones > * + * { margin-left: 6px; }
 .card-archivada { opacity: .8; border-left: 3px solid var(--line); }
 
 /* valoración del estudiante */
