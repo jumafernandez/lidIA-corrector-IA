@@ -100,7 +100,7 @@ location /entregas/ {
 
 Desarrollado en el **LICDIA** (Laboratorio de Investigación en Ciencia de Datos e Inteligencia Artificial) con la participación del **SIED** (Sistema Institucional de Educación a Distancia), Universidad Nacional de Luján.
 
-Equipo: Juan Manuel Fernández, David Petrocelli, Francisco Tamasi y Sebastián Marchetti (LICDIA); Diego Ormella, P. Dellepiane y M. Ficcardi (SIED).
+El sistema es desarrollo de Juan Manuel Fernández (LICDIA, UNLu). Su implementación en la Universidad Nacional de Luján se lleva adelante junto con los equipos del LICDIA y del SIED, coautores además del resumen que se cita abajo.
 
 Si lo instala en su institución, lo adapta o lo menciona en una publicación:
 
