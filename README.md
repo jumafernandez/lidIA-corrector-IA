@@ -110,6 +110,8 @@ Si lo instala en su institución, lo adapta o lo menciona en una publicación:
 
 Al desplegar una copia, se pide conservar la mención a LICDIA-UNLu del pie de la interfaz.
 
+Licencia **Apache-2.0** (`LICENSE`): se puede usar, modificar y desplegar, incluso con fines comerciales, conservando el aviso de atribución del archivo `NOTICE` y dejando constancia de los cambios introducidos.
+
 ## Investigación
 
 LidIA registra, mientras se usa, lo que después no se puede reconstruir: la configuración exacta con la que se generó cada devolución, el costo y la latencia del modelo, **cuánto reescribió el equipo docente la propuesta de la IA antes de firmarla**, si el estudiantado la leyó y si le sirvió.

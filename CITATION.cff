@@ -7,7 +7,7 @@ abstract: >-
   al estudiante sin que un docente la edite y la apruebe.
 type: software
 message: "Si usa este sistema o lo adapta, cítelo así."
-license: MIT
+license: Apache-2.0
 repository-code: "https://github.com/jumafernandez/lidIA-corrector-IA"
 url: "https://licdia.unlu.edu.ar/entregas"
 year: 2026
