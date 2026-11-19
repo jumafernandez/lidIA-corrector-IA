@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Roboto+Slab:wght@400;500;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="{{ base }}/static/style.css?v=60">
+<link rel="stylesheet" href="{{ base }}/static/style.css?v=61">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='80' font-size='80'>🧠</text></svg>">
 </head>
 <body class="{% block bodyclass %}{% endblock %}">
@@ -421,6 +421,31 @@ document.querySelectorAll("table").forEach(t => {
   t.parentNode.insertBefore(caja, t);
   caja.appendChild(t);
 });
+
+// Un panel de ayuda colgado de un encabezado de tabla quedaba recortado: la caja que permite
+// desplazar la tabla de costado recorta todo lo que se le sale, y el panel es justamente algo
+// que se sale. Mientras está abierto se lo pasa a coordenadas de pantalla, que ninguna caja
+// recorta, y al cerrarlo vuelve a su posición de siempre.
+function ubicarAyuda(d) {
+  const panel = d.querySelector(".info-panel");
+  if (!panel) return;
+  if (!d.open) { panel.style.cssText = ""; return; }
+  const r = d.getBoundingClientRect();
+  panel.style.position = "fixed";
+  panel.style.right = "auto";
+  panel.style.top = `${r.bottom + 6}px`;
+  // Si no entra hacia la derecha, se corre lo necesario para que entre entero en la pantalla.
+  panel.style.left = `${Math.max(12, Math.min(r.left, innerWidth - panel.offsetWidth - 12))}px`;
+}
+// `toggle` no burbujea: hay que escucharlo en la fase de captura.
+document.addEventListener("toggle", ev => {
+  const d = ev.target;
+  if (d.tagName === "DETAILS" && d.classList.contains("info") && d.closest(".tabla-scroll")) ubicarAyuda(d);
+}, true);
+// Mientras uno está abierto, sigue al ícono si la página o la tabla se mueven.
+const seguirAyuda = () => document.querySelectorAll(".tabla-scroll details.info[open]").forEach(ubicarAyuda);
+addEventListener("scroll", seguirAyuda, { passive: true, capture: true });
+addEventListener("resize", seguirAyuda, { passive: true });
 </script>
 </body>
 </html>

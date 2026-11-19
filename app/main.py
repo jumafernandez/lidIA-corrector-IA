@@ -57,9 +57,23 @@ STAFF = ("admin", "docente")
 LOGIN_RE = re.compile(r"^[a-zA-Z0-9._-]{3,32}$")
 
 
+# Un bloque de código cercado, o un trozo entre comillas simples. Se los aparta antes de
+# neutralizar el HTML porque adentro markdown ya escapa solo, y hacerlo dos veces convertía
+# un «if a < b» entregado por un estudiante en «if a &lt; b» a la vista.
+CODIGO_MD = re.compile(r"(^```.*?^```|`[^`\n]+`)", re.M | re.S)
+
+
 def md(text: str) -> str:
-    """Markdown → HTML, con el HTML crudo neutralizado."""
-    safe = (text or "").replace("<", "&lt;")
+    """Markdown → HTML, con el HTML crudo neutralizado.
+
+    Lo que se renderiza acá lo escribió otra persona —un trabajo entregado, una consigna, una
+    devolución—, así que ninguna etiqueta suya puede llegar viva a la página. Se neutraliza
+    solo la prosa: en el código, escapar de nuevo lo que markdown ya escapó rompe el código.
+    Y no es una hipótesis: la salida de un notebook trae cosas como «<Figure size 1600x1200>»,
+    que no es HTML pero lo parece, y sin esto se comía todo lo que venía después.
+    """
+    partes = CODIGO_MD.split(text or "")
+    safe = "".join(p if i % 2 else p.replace("<", "&lt;") for i, p in enumerate(partes))
     return md_lib.markdown(safe, extensions=["extra", "sane_lists"])
 
 
