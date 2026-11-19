@@ -127,11 +127,13 @@ main a:hover, .foot a:hover { color: #0a4d54; -webkit-text-fill-color: #0a4d54; 
 .row-gap { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
 .center-note { text-align: center; padding: 34px 22px; }
 .foot { color: var(--muted); font-size: .8rem; padding: 8px 20px 26px; text-align: center; }
-.foot .credit { display: block; margin-top: 8px; font-size: .72rem; }
+.foot .credit { margin-top: 8px; font-size: .72rem; }
 .foot .credit a { display: inline-flex; align-items: center; gap: 6px; }
 .foot .credit img { width: 16px; height: auto; }
 .foot .credit a, .foot .credit a:visited { color: var(--muted); -webkit-text-fill-color: var(--muted); text-decoration: none; font-family: var(--font-title); font-weight: 600; letter-spacing: .3px; }
 .foot .credit a:hover { color: var(--primary); -webkit-text-fill-color: var(--primary); }
+.foot .credit { display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap; }
+.foot .credit .con { font-family: var(--font-title); font-weight: 600; letter-spacing: .3px; }
 
 /* ---------- flash y pills ---------- */
 .flash {

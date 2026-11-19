@@ -96,6 +96,20 @@ location /entregas/ {
 * **Estudiantes** — alta individual, CSV o pegado masivo; ficha con correo, inscripciones y el **perfil de corrección**: orientación de la devolución para esa persona (más técnica, más pedagógica…). Ajusta tono y foco; el estándar de exigencia es el mismo para todo el grupo.
 * **Configuración** — lo global: aviso para deshabilitados y si se envía el nombre de pila al modelo.
 
+## Créditos y cómo citarlo
+
+Desarrollado en el **LICDIA** (Laboratorio de Investigación en Ciencia de Datos e Inteligencia Artificial) con la participación del **SIED** (Sistema Institucional de Educación a Distancia), Universidad Nacional de Luján.
+
+Equipo: Juan Manuel Fernández, David Petrocelli, Francisco Tamasi y Sebastián Marchetti (LICDIA); Diego Ormella, P. Dellepiane y M. Ficcardi (SIED).
+
+Si lo instala en su institución, lo adapta o lo menciona en una publicación:
+
+> Fernández, J. M.; Petrocelli, D.; Tamasi, F.; Marchetti, S.; Ormella, D.; Dellepiane, P.; Ficcardi, M. (2026). *LidIA: retroalimentación formativa asistida por inteligencia artificial con revisión docente*. Jornadas de Ciencia, Tecnología y Extensión, Departamento de Ciencias Básicas, Universidad Nacional de Luján.
+
+`CITATION.cff` trae esos datos en formato legible por máquina: GitHub muestra el botón «Cite this repository» y los gestores bibliográficos lo importan sin retipearlo.
+
+Al desplegar una copia, se pide conservar la mención a LICDIA-UNLu del pie de la interfaz.
+
 ## Investigación
 
 LidIA registra, mientras se usa, lo que después no se puede reconstruir: la configuración exacta con la que se generó cada devolución, el costo y la latencia del modelo, **cuánto reescribió el equipo docente la propuesta de la IA antes de firmarla**, si el estudiantado la leyó y si le sirvió.

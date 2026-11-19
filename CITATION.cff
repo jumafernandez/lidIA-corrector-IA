@@ -1,0 +1,57 @@
+cff-version: 1.2.0
+title: "LidIA"
+abstract: >-
+  Sistema web de retroalimentación formativa asistida por inteligencia
+  artificial con revisión docente: redacta una propuesta de devolución para
+  cada entrega según la rúbrica del equipo docente, y ninguna devolución llega
+  al estudiante sin que un docente la edite y la apruebe.
+type: software
+message: "Si usa este sistema o lo adapta, cítelo así."
+license: MIT
+repository-code: "https://github.com/jumafernandez/lidIA-corrector-IA"
+url: "https://licdia.unlu.edu.ar/entregas"
+year: 2026
+authors:
+  - family-names: "Fernández"
+    given-names: "Juan Manuel"
+    affiliation: "Laboratorio de Investigación en Ciencia de Datos e Inteligencia Artificial (LICDIA), Universidad Nacional de Luján"
+  - family-names: "Petrocelli"
+    given-names: "David"
+    affiliation: "Laboratorio de Investigación en Ciencia de Datos e Inteligencia Artificial (LICDIA), Universidad Nacional de Luján"
+  - family-names: "Tamasi"
+    given-names: "Francisco"
+    affiliation: "Laboratorio de Investigación en Ciencia de Datos e Inteligencia Artificial (LICDIA), Universidad Nacional de Luján"
+  - family-names: "Marchetti"
+    given-names: "Sebastián"
+    affiliation: "Laboratorio de Investigación en Ciencia de Datos e Inteligencia Artificial (LICDIA), Universidad Nacional de Luján"
+  - family-names: "Ormella"
+    given-names: "Diego"
+    affiliation: "Sistema Institucional de Educación a Distancia (SIED), Universidad Nacional de Luján"
+  - family-names: "Dellepiane"
+    given-names: "P."
+    affiliation: "Sistema Institucional de Educación a Distancia (SIED), Universidad Nacional de Luján"
+  - family-names: "Ficcardi"
+    given-names: "M."
+    affiliation: "Sistema Institucional de Educación a Distancia (SIED), Universidad Nacional de Luján"
+preferred-citation:
+  type: conference-paper
+  title: "LidIA: retroalimentación formativa asistida por inteligencia artificial con revisión docente"
+  year: 2026
+  collection-title: "Jornadas de Ciencia, Tecnología y Extensión del Departamento de Ciencias Básicas"
+  institution:
+    name: "Universidad Nacional de Luján"
+  authors:
+    - family-names: "Fernández"
+      given-names: "Juan Manuel"
+    - family-names: "Petrocelli"
+      given-names: "David"
+    - family-names: "Tamasi"
+      given-names: "Francisco"
+    - family-names: "Marchetti"
+      given-names: "Sebastián"
+    - family-names: "Ormella"
+      given-names: "Diego"
+    - family-names: "Dellepiane"
+      given-names: "P."
+    - family-names: "Ficcardi"
+      given-names: "M."
